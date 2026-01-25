@@ -1,5 +1,6 @@
 export interface User {
   id: string;
+  site_id?: string;
   email: string;
   full_name: string | null;
   avatar_url: string | null;
@@ -27,6 +28,7 @@ export interface TokenResponse {
 export interface GoogleAuthRequest {
   code: string;
   redirect_uri: string;
+  site_id?: string;
 }
 
 export interface LogoutResponse {
