@@ -1,35 +1,86 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './contexts/AuthContext';
+import ProtectedRoute from './components/ProtectedRoute';
+import Login from './pages/Login';
+import Dashboard from './pages/Dashboard';
+import LoginAttempts from './pages/LoginAttempts';
+import RFPList from './pages/RFPList';
+import RFPForm from './pages/RFPForm';
+import HotelInvitations from './pages/HotelInvitations';
+import HotelResponseForm from './pages/HotelResponseForm';
+import ResponseComparison from './pages/ResponseComparison';
 
 function App() {
-  const [count, setCount] = useState(0)
-
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    <Router>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/auth/callback" element={<Login />} />
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute requireAdmin={true}>
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/login-attempts"
+            element={
+              <ProtectedRoute requireAdmin={true}>
+                <LoginAttempts />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/rfps"
+            element={
+              <ProtectedRoute requireAdmin={true}>
+                <RFPList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/rfps/new"
+            element={
+              <ProtectedRoute requireAdmin={true}>
+                <RFPForm />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/rfps/:id/edit"
+            element={
+              <ProtectedRoute requireAdmin={true}>
+                <RFPForm />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/rfps/:rfpId/invitations"
+            element={
+              <ProtectedRoute requireAdmin={true}>
+                <HotelInvitations />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/rfps/:rfpId/responses"
+            element={
+              <ProtectedRoute requireAdmin={true}>
+                <ResponseComparison />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/hotel-response/:guid" element={<HotelResponseForm />} />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </AuthProvider>
+    </Router>
+  );
 }
 
-export default App
+export default App;
