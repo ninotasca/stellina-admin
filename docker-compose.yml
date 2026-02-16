@@ -1,0 +1,19 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: stellina-unovento-api-submodule
+    ports:
+      - "3401:3501"
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: stellina-admin-frontend
+    ports:
+      - "3402:3402"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
