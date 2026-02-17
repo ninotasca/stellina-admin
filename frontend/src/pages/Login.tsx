@@ -48,6 +48,10 @@ const Login: React.FC = () => {
   };
 
   const handleGoogleLogin = () => {
+    if (!GOOGLE_CLIENT_ID) {
+      setError('Google OAuth is not configured. Missing client ID.');
+      return;
+    }
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
       client_id: GOOGLE_CLIENT_ID,
       redirect_uri: REDIRECT_URI,
@@ -60,22 +64,6 @@ const Login: React.FC = () => {
     window.location.href = authUrl;
   };
 
-  const handleMagicLogin = () => {
-    // Backdoor login for development
-    const mockToken = 'dev_magic_token_' + Date.now();
-    const mockUser: any = {
-      id: 'magic-admin-123',
-      email: 'admin@stellina.dev',
-      name: 'Magic Admin',
-      picture: '',
-      is_admin: true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    
-    login(mockToken, mockUser);
-    navigate('/dashboard');
-  };
 
   if (loading) {
     return (
@@ -122,16 +110,9 @@ const Login: React.FC = () => {
                 d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
               />
             </svg>
-            <span className="text-gray-700 font-medium">Sign in with Google Workspace</span>
+            <span className="text-gray-700 font-medium">Sign in with Google</span>
           </button>
 
-          <button
-            onClick={handleMagicLogin}
-            className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:from-purple-600 hover:to-pink-600 transition-all duration-200 shadow-md hover:shadow-lg"
-          >
-            <span className="text-xl">✨</span>
-            <span className="font-medium">Magic Login</span>
-          </button>
         </div>
 
         <div className="mt-8 text-center text-sm text-gray-500">

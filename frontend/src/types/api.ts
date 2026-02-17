@@ -31,6 +31,16 @@ export interface GoogleAuthRequest {
   site_id?: string;
 }
 
+export interface AllowedGoogleAccount {
+  id: string;
+  site_id: string;
+  email?: string | null;
+  domain?: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface LogoutResponse {
   message: string;
 }

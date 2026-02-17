@@ -1,5 +1,12 @@
 import axios, { type AxiosError, type AxiosInstance } from 'axios';
-import type { GoogleAuthRequest, LoginAttempt, LogoutResponse, TokenResponse, User } from '../types/api';
+import type {
+  AllowedGoogleAccount,
+  GoogleAuthRequest,
+  LoginAttempt,
+  LogoutResponse,
+  TokenResponse,
+  User,
+} from '../types/api';
 
 const STELLINA_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3501/api/v1/stellina';
 const CORE_API_URL = import.meta.env.VITE_CORE_API_URL || 'http://localhost:3501/api/v1/core';
@@ -104,6 +111,39 @@ class ApiClient {
       params: { limit, offset },
     });
     return response.data;
+  }
+
+  // Allowed Google accounts (admin only)
+  async getAllowedGoogleAccounts(): Promise<AllowedGoogleAccount[]> {
+    const response = await this.coreClient.get<AllowedGoogleAccount[]>('/auth/allowed-google-accounts');
+    return response.data;
+  }
+
+  async createAllowedGoogleAccount(payload: {
+    email?: string;
+    domain?: string;
+    is_active?: boolean;
+  }): Promise<AllowedGoogleAccount> {
+    const response = await this.coreClient.post<AllowedGoogleAccount>(
+      '/auth/allowed-google-accounts',
+      payload,
+    );
+    return response.data;
+  }
+
+  async updateAllowedGoogleAccount(
+    accountId: string,
+    payload: { email?: string; domain?: string; is_active?: boolean },
+  ): Promise<AllowedGoogleAccount> {
+    const response = await this.coreClient.patch<AllowedGoogleAccount>(
+      `/auth/allowed-google-accounts/${accountId}`,
+      payload,
+    );
+    return response.data;
+  }
+
+  async deleteAllowedGoogleAccount(accountId: string): Promise<void> {
+    await this.coreClient.delete(`/auth/allowed-google-accounts/${accountId}`);
   }
 }
 
