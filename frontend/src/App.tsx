@@ -10,6 +10,11 @@ import RFPForm from './pages/RFPForm';
 import HotelInvitations from './pages/HotelInvitations';
 import HotelResponseForm from './pages/HotelResponseForm';
 import ResponseComparison from './pages/ResponseComparison';
+import CommissionList from './pages/CommissionList';
+import CommissionForm from './pages/CommissionForm';
+import CommissionProjections from './pages/CommissionProjections';
+import CommissionDashboard from './pages/CommissionDashboard';
+import NimblePage from './pages/NimblePage';
 
 function App() {
   return (
@@ -71,6 +76,54 @@ function App() {
             element={
               <ProtectedRoute requireAdmin={true}>
                 <ResponseComparison />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/commissions"
+            element={
+              <ProtectedRoute requireAdmin={true}>
+                <CommissionDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/commissions/list"
+            element={
+              <ProtectedRoute requireAdmin={true}>
+                <CommissionList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/commissions/new"
+            element={
+              <ProtectedRoute requireAdmin={true}>
+                <CommissionForm />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/commissions/:id/edit"
+            element={
+              <ProtectedRoute requireAdmin={true}>
+                <CommissionForm />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/commissions/projections"
+            element={
+              <ProtectedRoute requireAdmin={true}>
+                <CommissionProjections />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/nimble"
+            element={
+              <ProtectedRoute requireAdmin={true}>
+                <NimblePage />
               </ProtectedRoute>
             }
           />
