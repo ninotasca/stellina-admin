@@ -6,7 +6,6 @@ import type {
   RoomNightResponseCreate,
   MeetingRoomResponseCreate,
   CustomQuestionResponseCreate,
-  HotelResponseView,
 } from '../types/rfp';
 
 const HotelResponseForm: React.FC = () => {

@@ -99,8 +99,6 @@ const fmtMoneyK = (n: number) => {
   if (Math.abs(n) >= 1000) return `$${(n / 1000).toFixed(0)}k`;
   return `$${n.toFixed(0)}`;
 };
-const fmtDate = (v: string | null) =>
-  v ? new Date(v).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '';
 
 // ---------- Component ----------
 
@@ -582,20 +580,6 @@ const Kpi: React.FC<{ label: string; value: string; sub?: string; tone?: 'green'
       <p className="text-xs text-gray-500 uppercase tracking-wider">{label}</p>
       <p className={`text-2xl font-bold mt-1 tabular-nums ${color}`}>{value}</p>
       {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
-    </div>
-  );
-};
-
-const StageMixBar: React.FC<{ breakdown: { stage: Stage; amount: number }[]; total: number }> = ({ breakdown, total }) => {
-  if (total <= 0 || breakdown.length === 0) return <span className="text-xs text-gray-400">—</span>;
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex h-2.5 w-32 rounded-sm overflow-hidden border border-gray-200" title={breakdown.map((b) => `${STAGE_LABEL[b.stage]}: ${fmtMoney0(b.amount)}`).join(' · ')}>
-        {breakdown.map((b) => (
-          <div key={b.stage} style={{ width: `${(b.amount / total) * 100}%`, background: STAGE_COLOR[b.stage] }} />
-        ))}
-      </div>
-      <span className="text-[10px] text-gray-500">{breakdown.length === 1 ? STAGE_LABEL[breakdown[0].stage] : `${breakdown.length} stages`}</span>
     </div>
   );
 };

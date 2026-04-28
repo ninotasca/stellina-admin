@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { nimbleApi, type NimbleContact, type NimbleListResponse, type NimbleRecordType } from '../services/nimbleApi';
 
 const PER_PAGE = 30;
@@ -10,9 +9,6 @@ const fv = (c: NimbleContact, key: string): string => {
   if (!arr || arr.length === 0) return '';
   return arr[0]?.value || '';
 };
-
-const fvAll = (c: NimbleContact, key: string): { value: string; modifier?: string }[] =>
-  c.fields?.[key]?.filter((e) => e.value) || [];
 
 const personName = (c: NimbleContact): string => {
   const first = fv(c, 'first name');
@@ -27,7 +23,6 @@ const displayName = (c: NimbleContact): string =>
   c.record_type === 'company' ? companyName(c) : personName(c);
 
 const NimblePage: React.FC = () => {
-  const navigate = useNavigate();
   const [recordType, setRecordType] = useState<NimbleRecordType>('all');
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState('');
