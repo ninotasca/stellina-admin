@@ -65,19 +65,16 @@ const NimblePage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-[1400px] mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/dashboard')} className="text-sm text-gray-500 hover:text-gray-700">← Dashboard</button>
-            <h1 className="text-2xl font-bold text-gray-900">Nimble CRM</h1>
-            <span className="text-xs text-gray-400 hidden sm:inline">live · read-only</span>
-          </div>
-          <a href="https://app.nimble.com" target="_blank" rel="noreferrer" className="text-sm text-blue-600 hover:underline">Open Nimble ↗</a>
+    <div>
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 flex flex-wrap justify-between items-center gap-3">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-gray-900">Nimble CRM</h1>
+          <span className="text-xs text-gray-400 hidden sm:inline">live · read-only</span>
         </div>
-      </header>
+        <a href="https://app.nimble.com" target="_blank" rel="noreferrer" className="text-sm text-blue-600 hover:underline">Open Nimble ↗</a>
+      </div>
 
-      <main className="max-w-[1400px] mx-auto px-4 py-6 space-y-4">
+      <main className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
         {/* Controls */}
         <div className="bg-white rounded-lg shadow-sm p-4 flex flex-col md:flex-row gap-3 md:items-center">
           <div className="flex gap-1 bg-gray-100 rounded-md p-1">

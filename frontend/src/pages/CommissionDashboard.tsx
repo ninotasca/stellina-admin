@@ -216,91 +216,74 @@ const CommissionDashboard: React.FC = () => {
     }));
   }, [visibleRows, grouping, yearFilter, availableYears]);
 
-  // Deal rollup — one row per event, aggregated from the visible (filtered) line items only
-  type DealRow = {
-    eventId: string;
-    meetingName: string;
-    bookingStatus: string;
-    destination: string | null;
-    clientCompany: string | null;
-    types: LineType[];
-    companies: string[];
-    earliestArrival: string | null;
-    latestDepart: string | null;
-    lineCount: number;
+  // Period rollup — one row per period (Paid / Invoiced / Booked / In Pipeline / Total)
+  type PeriodRow = {
+    period: string;
+    label: string;
+    paid: number;
+    invoiced: number;
+    booked: number;
+    pipeline: number; // tentative + prospect
     total: number;
-    stageBreakdown: { stage: Stage; amount: number }[];
+    lines: FlatRow[];
   };
 
-  const deals: DealRow[] = useMemo(() => {
-    const byEvent = new Map<string, FlatRow[]>();
+  const periodRollup: PeriodRow[] = useMemo(() => {
+    const byPeriod = new Map<string, FlatRow[]>();
     for (const r of visibleRows) {
-      const arr = byEvent.get(r.event.id) || [];
+      const arr = byPeriod.get(r.period) || [];
       arr.push(r);
-      byEvent.set(r.event.id, arr);
+      byPeriod.set(r.period, arr);
     }
-    const out: DealRow[] = [];
-    byEvent.forEach((rows, eventId) => {
-      const ev = rows[0].event;
-      const types = Array.from(new Set(rows.map((r) => r.line_type)));
-      const companies = Array.from(new Set(rows.map((r) => r.company_name.trim()).filter(Boolean)));
-      const arrivals = rows.map((r) => r.arrival_date).filter(Boolean) as string[];
-      const departs = rows.map((r) => r.depart_date).filter(Boolean) as string[];
-      const total = rows.reduce((s, r) => s + r.commission, 0);
-      const stageMap = new Map<Stage, number>();
-      for (const r of rows) stageMap.set(r.stage, (stageMap.get(r.stage) || 0) + r.commission);
-      const stageBreakdown = STAGE_ORDER
-        .filter((s) => (stageMap.get(s) || 0) > 0)
-        .map((s) => ({ stage: s, amount: stageMap.get(s) || 0 }));
-      out.push({
-        eventId,
-        meetingName: ev.meeting_name,
-        bookingStatus: ev.booking_status,
-        destination: ev.destination,
-        clientCompany: ev.client_company_name || null,
-        types,
-        companies,
-        earliestArrival: arrivals.length ? arrivals.sort()[0] : null,
-        latestDepart: departs.length ? departs.sort().slice(-1)[0] : null,
-        lineCount: rows.length,
-        total,
-        stageBreakdown,
-      });
-    });
-    out.sort((a, b) => {
-      const ad = a.earliestArrival || '9999-12-31';
-      const bd = b.earliestArrival || '9999-12-31';
-      return ad.localeCompare(bd);
-    });
-    return out;
-  }, [visibleRows]);
+    // Build axis the same way the chart does, so empty periods stay visible
+    const yearsForAxis: number[] =
+      yearFilter === 'all'
+        ? (availableYears.length ? availableYears : [])
+        : yearFilter === 'ytd_forward'
+          ? [CURRENT_YEAR]
+          : [yearFilter];
+    const axis = buildPeriodAxis(yearsForAxis, grouping);
 
-  // Sort state for the deals table
-  type SortKey = 'meeting' | 'status' | 'arrival' | 'commission';
-  const [sortKey, setSortKey] = useState<SortKey>('arrival');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+    const buildRow = (period: string, lines: FlatRow[]): PeriodRow => {
+      let paid = 0, invoiced = 0, booked = 0, pipeline = 0;
+      for (const r of lines) {
+        if (r.stage === 'paid') paid += r.commission;
+        else if (r.stage === 'invoiced') invoiced += r.commission;
+        else if (r.stage === 'booked') booked += r.commission;
+        else if (r.stage === 'tentative' || r.stage === 'prospect') pipeline += r.commission;
+      }
+      return {
+        period,
+        label: periodLabel(period, grouping),
+        paid, invoiced, booked, pipeline,
+        total: paid + invoiced + booked + pipeline,
+        lines,
+      };
+    };
 
-  const sortedDeals = useMemo(() => {
-    const STATUS_RANK: Record<string, number> = { definite: 4, tentative: 3, prospect: 2, lost: 1 };
-    const arr = [...deals];
-    arr.sort((a, b) => {
-      let cmp = 0;
-      if (sortKey === 'meeting') cmp = a.meetingName.localeCompare(b.meetingName);
-      else if (sortKey === 'status') cmp = (STATUS_RANK[a.bookingStatus] || 0) - (STATUS_RANK[b.bookingStatus] || 0);
-      else if (sortKey === 'arrival') {
-        const ad = a.earliestArrival || '9999-12-31';
-        const bd = b.earliestArrival || '9999-12-31';
-        cmp = ad.localeCompare(bd);
-      } else if (sortKey === 'commission') cmp = a.total - b.total;
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-    return arr;
-  }, [deals, sortKey, sortDir]);
+    const rows: PeriodRow[] = axis.map((p) => buildRow(p, byPeriod.get(p) || []));
+    const unscheduledLines = byPeriod.get('Unscheduled');
+    if (unscheduledLines && unscheduledLines.length > 0) {
+      rows.push(buildRow('Unscheduled', unscheduledLines));
+    }
+    return rows;
+  }, [visibleRows, grouping, yearFilter, availableYears, CURRENT_YEAR]);
 
-  const onSort = (k: SortKey) => {
-    if (sortKey === k) setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
-    else { setSortKey(k); setSortDir(k === 'commission' ? 'desc' : 'asc'); }
-  };
+  const grandTotals = useMemo(() => {
+    return periodRollup.reduce(
+      (acc, p) => ({
+        paid: acc.paid + p.paid,
+        invoiced: acc.invoiced + p.invoiced,
+        booked: acc.booked + p.booked,
+        pipeline: acc.pipeline + p.pipeline,
+        total: acc.total + p.total,
+      }),
+      { paid: 0, invoiced: 0, booked: 0, pipeline: 0, total: 0 }
+    );
+  }, [periodRollup]);
+
+  // Which period row is expanded (only one at a time)
+  const [expandedPeriod, setExpandedPeriod] = useState<string | null>(null);
 
   const toggleStage = (s: Stage) => {
     const next = new Set(stageFilter);
@@ -314,22 +297,12 @@ const CommissionDashboard: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-[1400px] mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/dashboard')} className="text-sm text-gray-500 hover:text-gray-700">← Dashboard</button>
-            <h1 className="text-2xl font-bold text-gray-900">Commission Tracker</h1>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => navigate('/commissions/list')} className="px-3 py-2 text-sm bg-white border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50">Detail List</button>
-            <button onClick={() => navigate('/commissions/projections')} className="px-3 py-2 text-sm bg-white border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50">Weighted View</button>
-            <button onClick={() => navigate('/commissions/new')} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm">+ New Event</button>
-          </div>
-        </div>
-      </header>
+    <div>
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+        <h1 className="text-2xl font-bold text-gray-900">Commission Tracker</h1>
+      </div>
 
-      <main className="max-w-[1400px] mx-auto px-4 py-6 space-y-6">
+      <main className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         {error && <div className="p-4 bg-red-100 text-red-700 rounded-md">{error}</div>}
         {loading && <div className="text-center py-12 text-gray-500">Loading…</div>}
 
@@ -440,7 +413,7 @@ const CommissionDashboard: React.FC = () => {
               <Kpi label="Pending Invoice" value={fmtMoney0(kpis.pendingInvoice)} tone="blue" />
               <Kpi label="Booked, Not Invoiced" value={fmtMoney0(kpis.bookedNotInvoiced)} tone="indigo" />
               <Kpi label="In Pipeline" value={fmtMoney0(kpis.inPipeline)} tone="yellow" />
-              <Kpi label="Total Visible" value={fmtMoney0(kpis.total)} sub={`${deals.length} deals · ${visibleRows.length} lines`} />
+              <Kpi label="Total Visible" value={fmtMoney0(kpis.total)} sub={`${visibleRows.length} line items`} />
             </div>
 
             {/* Main chart */}
@@ -471,65 +444,100 @@ const CommissionDashboard: React.FC = () => {
               )}
             </div>
 
-            {/* Deals (rolled up from line items) */}
+            {/* Period rollup with expandable details */}
             <div className="bg-white rounded-lg shadow overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-                <h2 className="text-lg font-semibold text-gray-900">Deals <span className="text-sm font-normal text-gray-500">({deals.length})</span></h2>
-                <button onClick={() => navigate('/commissions/list')} className="text-sm text-blue-600 hover:underline">View as line items →</button>
+              <div className="px-4 py-3 border-b border-gray-200">
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Commission by {grouping === 'month' ? 'Month' : grouping === 'quarter' ? 'Quarter' : 'Year'}
+                </h2>
               </div>
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200 text-sm">
                   <thead className="bg-gray-50">
                     <tr>
-                      <SortTh active={sortKey === 'meeting'} dir={sortDir} onClick={() => onSort('meeting')}>Meeting</SortTh>
-                      <SortTh active={sortKey === 'status'} dir={sortDir} onClick={() => onSort('status')}>Status</SortTh>
-                      <Th>Lines</Th>
-                      <SortTh active={sortKey === 'arrival'} dir={sortDir} onClick={() => onSort('arrival')}>Arrival</SortTh>
-                      <SortTh right active={sortKey === 'commission'} dir={sortDir} onClick={() => onSort('commission')}>Commission</SortTh>
+                      <Th>Period</Th>
+                      <Th right>Paid</Th>
+                      <Th right>Invoiced</Th>
+                      <Th right>Booked</Th>
+                      <Th right>In Pipeline</Th>
+                      <Th right>Total</Th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {sortedDeals.length === 0 ? (
-                      <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-500">No deals match these filters.</td></tr>
-                    ) : sortedDeals.map((d) => (
-                      <tr key={d.eventId} className="hover:bg-gray-50">
-                        <td className="px-3 py-2">
-                          <button onClick={() => navigate(`/commissions/${d.eventId}/edit`)} className="text-blue-700 hover:underline text-left font-medium">
-                            {d.meetingName}
-                          </button>
-                          {(d.clientCompany || d.destination) && (
-                            <div className="text-xs text-gray-500">
-                              {d.clientCompany && <span className="font-medium text-gray-600">{d.clientCompany}</span>}
-                              {d.clientCompany && d.destination && <span> · </span>}
-                              {d.destination}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
-                            d.bookingStatus === 'definite' ? 'bg-green-100 text-green-800' :
-                            d.bookingStatus === 'tentative' ? 'bg-yellow-100 text-yellow-800' :
-                            d.bookingStatus === 'lost' ? 'bg-red-100 text-red-800' :
-                            'bg-gray-100 text-gray-700'
-                          }`}>{d.bookingStatus}</span>
-                        </td>
-                        <td className="px-3 py-2">
-                          <div className="flex gap-1 flex-wrap">
-                            {d.types.map((t) => (
-                              <span key={t} className="px-1.5 py-0.5 bg-gray-100 text-gray-700 text-[10px] uppercase tracking-wider rounded">{t}</span>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(d.earliestArrival)}</td>
-                        <td className="px-3 py-2 text-right font-medium tabular-nums">{fmtMoney0(d.total)}</td>
-                      </tr>
-                    ))}
+                    {periodRollup.length === 0 ? (
+                      <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">No data for these filters.</td></tr>
+                    ) : periodRollup.map((p) => {
+                      const expanded = expandedPeriod === p.period;
+                      const hasData = p.lines.length > 0;
+                      return (
+                        <React.Fragment key={p.period}>
+                          <tr
+                            onClick={() => hasData && setExpandedPeriod(expanded ? null : p.period)}
+                            className={`${hasData ? 'cursor-pointer hover:bg-gray-50' : 'text-gray-400'} ${expanded ? 'bg-blue-50/50' : ''}`}
+                          >
+                            <td className="px-3 py-2 font-medium text-gray-900">
+                              <span className="inline-flex items-center gap-1.5">
+                                <svg className={`w-3.5 h-3.5 text-gray-500 transition-transform ${expanded ? 'rotate-90' : ''} ${hasData ? '' : 'opacity-0'}`}
+                                  fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                                {p.label}
+                                {hasData && <span className="text-[10px] text-gray-400 ml-1">({p.lines.length})</span>}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums">{p.paid > 0 ? <span className="text-emerald-700">{fmtMoney0(p.paid)}</span> : <span className="text-gray-300">—</span>}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{p.invoiced > 0 ? <span className="text-blue-700">{fmtMoney0(p.invoiced)}</span> : <span className="text-gray-300">—</span>}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{p.booked > 0 ? <span className="text-indigo-700">{fmtMoney0(p.booked)}</span> : <span className="text-gray-300">—</span>}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{p.pipeline > 0 ? <span className="text-yellow-700">{fmtMoney0(p.pipeline)}</span> : <span className="text-gray-300">—</span>}</td>
+                            <td className="px-3 py-2 text-right font-semibold tabular-nums">{p.total > 0 ? fmtMoney0(p.total) : <span className="text-gray-300 font-normal">—</span>}</td>
+                          </tr>
+                          {expanded && expandLines(p.lines).map((li) => (
+                            <tr key={li.id} className="bg-gray-50/60">
+                              <td className="pl-10 pr-3 py-1.5">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <button
+                                    onClick={() => navigate(`/commissions/${li.event.id}`)}
+                                    className="text-sm text-blue-700 hover:underline truncate text-left min-w-0"
+                                    title={li.event.meeting_name}
+                                  >
+                                    {li.event.meeting_name}
+                                  </button>
+                                  <span className="px-1.5 py-0.5 text-[10px] uppercase tracking-wider rounded text-white font-semibold shrink-0"
+                                    style={{ background: { hotel: '#059669', dmc: '#4f46e5', air: '#0284c7', other: '#475569' }[li.line_type] }}>
+                                    {li.line_type}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-sm">
+                                {li.stage === 'paid' ? <span className="text-emerald-700">{fmtMoney0(li.commission)}</span> : <span className="text-gray-300">—</span>}
+                              </td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-sm">
+                                {li.stage === 'invoiced' ? <span className="text-blue-700">{fmtMoney0(li.commission)}</span> : <span className="text-gray-300">—</span>}
+                              </td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-sm">
+                                {li.stage === 'booked' ? <span className="text-indigo-700">{fmtMoney0(li.commission)}</span> : <span className="text-gray-300">—</span>}
+                              </td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-sm">
+                                {(li.stage === 'tentative' || li.stage === 'prospect') ? <span className="text-yellow-700">{fmtMoney0(li.commission)}</span> : <span className="text-gray-300">—</span>}
+                              </td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-sm font-medium text-gray-900">
+                                {li.commission > 0 ? fmtMoney0(li.commission) : <span className="text-gray-300 font-normal">—</span>}
+                              </td>
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                      );
+                    })}
                   </tbody>
-                  {sortedDeals.length > 0 && (
+                  {periodRollup.length > 0 && (
                     <tfoot className="bg-gray-50 font-semibold">
                       <tr>
-                        <td className="px-3 py-2" colSpan={4}>Total</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{fmtMoney0(kpis.total)}</td>
+                        <td className="px-3 py-2">Total</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-emerald-800">{fmtMoney0(grandTotals.paid)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-blue-800">{fmtMoney0(grandTotals.invoiced)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-indigo-800">{fmtMoney0(grandTotals.booked)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-yellow-800">{fmtMoney0(grandTotals.pipeline)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmtMoney0(grandTotals.total)}</td>
                       </tr>
                     </tfoot>
                   )}
@@ -551,14 +559,16 @@ const Th: React.FC<{ children: React.ReactNode; right?: boolean }> = ({ children
   <th className={`px-3 py-2 text-${right ? 'right' : 'left'} text-xs font-medium text-gray-500 uppercase tracking-wider`}>{children}</th>
 );
 
-const SortTh: React.FC<{ children: React.ReactNode; right?: boolean; active: boolean; dir: 'asc' | 'desc'; onClick: () => void }> = ({ children, right, active, dir, onClick }) => (
-  <th className={`px-3 py-2 text-${right ? 'right' : 'left'} text-xs font-medium text-gray-500 uppercase tracking-wider`}>
-    <button onClick={onClick} className={`inline-flex items-center gap-1 hover:text-gray-900 ${active ? 'text-gray-900' : ''}`}>
-      <span>{children}</span>
-      <span className="text-[10px] w-2 inline-block">{active ? (dir === 'asc' ? '▲' : '▼') : ''}</span>
-    </button>
-  </th>
-);
+// Sort detail rows: by event meeting (alpha), then by line type, so each
+// deal's lines stay grouped within an expanded period.
+function expandLines(lines: FlatRow[]): FlatRow[] {
+  const TYPE_ORDER: Record<string, number> = { hotel: 0, dmc: 1, air: 2, other: 3 };
+  return [...lines].sort((a, b) => {
+    const cmp = a.event.meeting_name.localeCompare(b.event.meeting_name);
+    if (cmp !== 0) return cmp;
+    return (TYPE_ORDER[a.line_type] ?? 99) - (TYPE_ORDER[b.line_type] ?? 99);
+  });
+}
 
 const Kpi: React.FC<{ label: string; value: string; sub?: string; tone?: 'green' | 'blue' | 'indigo' | 'yellow' }> = ({ label, value, sub, tone }) => {
   const color =

@@ -26,7 +26,7 @@ interface Props {
   maxResults?: number;
 }
 
-const MATCH_LIMIT_DEFAULT = 50;
+const MATCH_LIMIT_DEFAULT = 1000;
 
 const NimbleTypeahead: React.FC<Props> = ({
   items,

@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import AppShell from './components/AppShell';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import LoginAttempts from './pages/LoginAttempts';
@@ -14,120 +15,45 @@ import CommissionList from './pages/CommissionList';
 import CommissionForm from './pages/CommissionForm';
 import CommissionProjections from './pages/CommissionProjections';
 import CommissionDashboard from './pages/CommissionDashboard';
+import CommissionView from './pages/CommissionView';
 import NimblePage from './pages/NimblePage';
 
 function App() {
+  const adminShell = (
+    <ProtectedRoute requireAdmin={true}>
+      <AppShell />
+    </ProtectedRoute>
+  );
+
   return (
     <Router>
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/auth/callback" element={<Login />} />
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute requireAdmin={true}>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/login-attempts"
-            element={
-              <ProtectedRoute requireAdmin={true}>
-                <LoginAttempts />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/rfps"
-            element={
-              <ProtectedRoute requireAdmin={true}>
-                <RFPList />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/rfps/new"
-            element={
-              <ProtectedRoute requireAdmin={true}>
-                <RFPForm />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/rfps/:id/edit"
-            element={
-              <ProtectedRoute requireAdmin={true}>
-                <RFPForm />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/rfps/:rfpId/invitations"
-            element={
-              <ProtectedRoute requireAdmin={true}>
-                <HotelInvitations />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/rfps/:rfpId/responses"
-            element={
-              <ProtectedRoute requireAdmin={true}>
-                <ResponseComparison />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/commissions"
-            element={
-              <ProtectedRoute requireAdmin={true}>
-                <CommissionDashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/commissions/list"
-            element={
-              <ProtectedRoute requireAdmin={true}>
-                <CommissionList />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/commissions/new"
-            element={
-              <ProtectedRoute requireAdmin={true}>
-                <CommissionForm />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/commissions/:id/edit"
-            element={
-              <ProtectedRoute requireAdmin={true}>
-                <CommissionForm />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/commissions/projections"
-            element={
-              <ProtectedRoute requireAdmin={true}>
-                <CommissionProjections />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/nimble"
-            element={
-              <ProtectedRoute requireAdmin={true}>
-                <NimblePage />
-              </ProtectedRoute>
-            }
-          />
           <Route path="/hotel-response/:guid" element={<HotelResponseForm />} />
+
+          {/* All admin pages share the AppShell chrome (top nav + settings menu) */}
+          <Route element={adminShell}>
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/login-attempts" element={<LoginAttempts />} />
+
+            <Route path="/rfps" element={<RFPList />} />
+            <Route path="/rfps/new" element={<RFPForm />} />
+            <Route path="/rfps/:id/edit" element={<RFPForm />} />
+            <Route path="/rfps/:rfpId/invitations" element={<HotelInvitations />} />
+            <Route path="/rfps/:rfpId/responses" element={<ResponseComparison />} />
+
+            <Route path="/commissions" element={<CommissionDashboard />} />
+            <Route path="/commissions/list" element={<CommissionList />} />
+            <Route path="/commissions/new" element={<CommissionForm />} />
+            <Route path="/commissions/:id/edit" element={<CommissionForm />} />
+            <Route path="/commissions/:id" element={<CommissionView />} />
+            <Route path="/commissions/projections" element={<CommissionProjections />} />
+
+            <Route path="/nimble" element={<NimblePage />} />
+          </Route>
+
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

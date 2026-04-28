@@ -6,6 +6,10 @@ import type {
   CommissionEventWithLineItems,
   CommissionLineItem,
   CommissionLineItemCreate,
+  CommissionNote,
+  HotelConsidered,
+  HotelConsideredCreate,
+  HotelConsideredUpdate,
   ProjectionSummary,
   BookingStatus,
 } from '../types/commission';
@@ -51,6 +55,48 @@ export const commissionApi = {
   },
   deleteEvent: async (id: string): Promise<void> => {
     await apiClient.delete(`/commissions/events/${id}`);
+  },
+
+  // Hotels considered
+  listHotels: async (eventId: string): Promise<HotelConsidered[]> => {
+    const res = await apiClient.get(`/commissions/events/${eventId}/hotels`);
+    return res.data;
+  },
+  addHotel: async (eventId: string, payload: HotelConsideredCreate): Promise<HotelConsidered> => {
+    const res = await apiClient.post(`/commissions/events/${eventId}/hotels`, payload);
+    return res.data;
+  },
+  updateHotel: async (hotelId: string, payload: HotelConsideredUpdate): Promise<HotelConsidered> => {
+    const res = await apiClient.put(`/commissions/hotels/${hotelId}`, payload);
+    return res.data;
+  },
+  deleteHotel: async (hotelId: string): Promise<void> => {
+    await apiClient.delete(`/commissions/hotels/${hotelId}`);
+  },
+
+  // Notes (timestamped, append-only)
+  listEventNotes: async (eventId: string): Promise<CommissionNote[]> => {
+    const res = await apiClient.get(`/commissions/events/${eventId}/notes`);
+    return res.data;
+  },
+  addEventNote: async (eventId: string, body: string): Promise<CommissionNote> => {
+    const res = await apiClient.post(`/commissions/events/${eventId}/notes`, { body });
+    return res.data;
+  },
+  listLineItemNotes: async (lineItemId: string): Promise<CommissionNote[]> => {
+    const res = await apiClient.get(`/commissions/line-items/${lineItemId}/notes`);
+    return res.data;
+  },
+  addLineItemNote: async (lineItemId: string, body: string): Promise<CommissionNote> => {
+    const res = await apiClient.post(`/commissions/line-items/${lineItemId}/notes`, { body });
+    return res.data;
+  },
+  updateNote: async (noteId: string, body: string): Promise<CommissionNote> => {
+    const res = await apiClient.put(`/commissions/notes/${noteId}`, { body });
+    return res.data;
+  },
+  deleteNote: async (noteId: string): Promise<void> => {
+    await apiClient.delete(`/commissions/notes/${noteId}`);
   },
 
   // Line items
