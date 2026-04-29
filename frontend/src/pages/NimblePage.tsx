@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { nimbleApi, nimbleEntityUrl, type NimbleContact, type NimbleDeal, type NimbleListResponse, type NimbleRecordType } from '../services/nimbleApi';
+import NimbleLink from '../components/NimbleLink';
 import { parseLocalDate } from '../utils/date';
 
 type Tab = 'all' | 'person' | 'company' | 'deals';
@@ -182,6 +183,7 @@ const NimblePage: React.FC = () => {
                               </div>
                             )}
                             <span className="font-medium text-gray-900">{displayName(c)}</span>
+                            <NimbleLink kind="contact" id={c.id} title={`Open ${displayName(c)} in Nimble`} />
                           </div>
                         </td>
                         <td className="px-3 py-2">
@@ -203,8 +205,7 @@ const NimblePage: React.FC = () => {
                           </div>
                         </td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
-                          <button onClick={() => setSelected(c)} className="text-blue-600 hover:underline mr-3">Details</button>
-                          <a href={nimbleEntityUrl('contact', c.id)} target="_blank" rel="noreferrer" className="text-gray-500 hover:text-gray-700">↗</a>
+                          <button onClick={() => setSelected(c)} className="text-blue-600 hover:underline">Details</button>
                         </td>
                       </tr>
                     );
@@ -399,7 +400,7 @@ const DetailDrawer: React.FC<{ contact: NimbleContact; onClose: () => void }> = 
             </dl>
           </div>
 
-          <a href={`https://app.nimble.com/contacts/${contact.id}`} target="_blank" rel="noreferrer"
+          <a href={nimbleEntityUrl('contact', contact.id)} target="_blank" rel="noreferrer"
             className="inline-block px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm">
             Open in Nimble ↗
           </a>
