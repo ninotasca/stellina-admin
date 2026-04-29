@@ -75,7 +75,12 @@ const AppShell: React.FC = () => {
               aria-label="Account menu"
             >
               {user?.avatar_url ? (
-                <img src={user.avatar_url} alt="" className="w-8 h-8 rounded-full border border-gray-200" />
+                <img
+                  src={user.avatar_url}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  className="w-8 h-8 rounded-full border border-gray-200"
+                />
               ) : (
                 <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-sm text-gray-600">
                   {(user?.full_name || user?.email || '?').charAt(0).toUpperCase()}

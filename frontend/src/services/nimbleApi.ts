@@ -11,6 +11,12 @@ apiClient.interceptors.request.use((config) => {
 
 export type NimbleRecordType = 'person' | 'company' | 'all';
 
+// External URL builder. Nimble's web app uses hash-routing.
+export const nimbleEntityUrl = (kind: 'contact' | 'deal', id: string): string =>
+  kind === 'deal'
+    ? `https://app.nimble.com/#/app/deals-next/pipeline/view?id=${id}`
+    : `https://app.nimble.com/#/app/contacts/list/view?id=${id}`;
+
 export interface NimbleFieldEntry {
   value: string;
   modifier?: string;
@@ -53,6 +59,38 @@ export interface NimblePersonLite {
   company_id?: string | null;
 }
 
+export interface NimbleDeal {
+  deal_id: string;
+  deal_number: number;
+  name: string;
+  description?: string | null;
+  amount?: string | null;
+  currency?: string | null;
+  destination?: string | null;
+  hotel_resort_dmc?: string | null;
+  commission_pct?: string | null;
+  total_revenue?: string | null;
+  anticipated_commission?: string | null;
+  what?: string | null;
+  status?: string | null;
+  meeting_name?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  expected_close_date?: string | null;
+  actual_close_date?: string | null;
+  stage?: { id?: string; name?: string } | string | null;
+  pipeline_name?: string | null;
+  owner_name?: string | null;
+  created?: string;
+  updated?: string;
+  related_contact_count: number;
+}
+
+export interface NimbleDealsResponse {
+  meta: { page: number; pages: number; per_page: number; total: number; total_amount?: number; weighted_amount?: number; has_more?: boolean };
+  deals: NimbleDeal[];
+}
+
 export const nimbleApi = {
   listContacts: async (params: {
     record_type?: NimbleRecordType;
@@ -79,6 +117,15 @@ export const nimbleApi = {
     if (params.company_id) search.set('company_id', params.company_id);
     if (params.company) search.set('company', params.company);
     const res = await apiClient.get(`/nimble/contacts-by-company?${search.toString()}`);
+    return res.data;
+  },
+
+  listDeals: async (params: { page?: number; per_page?: number } = {}): Promise<NimbleDealsResponse> => {
+    const search = new URLSearchParams();
+    if (params.page) search.set('page', String(params.page));
+    if (params.per_page) search.set('per_page', String(params.per_page));
+    const qs = search.toString();
+    const res = await apiClient.get(`/nimble/deals${qs ? `?${qs}` : ''}`);
     return res.data;
   },
 };

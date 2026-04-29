@@ -10,6 +10,9 @@ export interface HotelConsidered {
   name: string;
   is_selected: boolean;
   notes: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
   created_at: string;
 }
 
@@ -17,12 +20,18 @@ export interface HotelConsideredCreate {
   name: string;
   is_selected?: boolean;
   notes?: string | null;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
 }
 
 export interface HotelConsideredUpdate {
   name?: string;
   is_selected?: boolean;
   notes?: string | null;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
 }
 
 export interface CommissionNote {
@@ -43,17 +52,12 @@ export interface CommissionLineItem {
   resort_hotel: string | null;
   arrival_date: string | null;
   depart_date: string | null;
-  peak_rooms: number | null;
-  total_room_nights: number | null;
   revenue: string | null;
   commission_pct: string | null;
   commission_amount: string | null;
   payment_status: PaymentStatus;
   invoice_sent_date: string | null;
   paid_date: string | null;
-  my_points: string | null;
-  cash_forward: string | null;
-  notes: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -64,17 +68,12 @@ export interface CommissionLineItemCreate {
   resort_hotel?: string | null;
   arrival_date?: string | null;
   depart_date?: string | null;
-  peak_rooms?: number | null;
-  total_room_nights?: number | null;
   revenue?: string | null;
   commission_pct?: string | null;
   commission_amount?: string | null;
   payment_status?: PaymentStatus;
   invoice_sent_date?: string | null;
   paid_date?: string | null;
-  my_points?: string | null;
-  cash_forward?: string | null;
-  notes?: string | null;
 }
 
 export interface CommissionEvent {

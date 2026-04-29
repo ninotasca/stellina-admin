@@ -13,6 +13,7 @@ import type {
   RFP,
   RFPCreate,
   RFPWithDetails,
+  RFPWithEventSummary,
   RoomNight,
   RoomNightCreate,
   RoomNightResponseCreate,
@@ -20,10 +21,8 @@ import type {
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3501/api/v1/stellina';
 
-// Get auth token from localStorage
 const getAuthToken = () => localStorage.getItem('access_token');
 
-// Create axios instance with auth
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
 });
@@ -36,70 +35,76 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// RFP APIs (Admin)
+// RFP APIs (Admin) — RFPs are anchored to a commission_event.
 export const rfpApi = {
-  // Create RFP
-  createRFP: async (rfp: RFPCreate): Promise<RFP> => {
-    const response = await apiClient.post('/rfps', rfp);
+  // Create RFP under a commission event
+  createRFPForEvent: async (eventId: string, rfp: RFPCreate): Promise<RFP> => {
+    const response = await apiClient.post(`/commissions/${eventId}/rfps`, rfp);
     return response.data;
   },
 
-  // List RFPs
-  listRFPs: async (): Promise<RFP[]> => {
+  // List RFPs for a single commission event
+  listRFPsForEvent: async (eventId: string): Promise<RFP[]> => {
+    const response = await apiClient.get(`/commissions/${eventId}/rfps`);
+    return response.data;
+  },
+
+  // Cross-event listing (top-nav RFPs page)
+  listRFPs: async (): Promise<RFPWithEventSummary[]> => {
     const response = await apiClient.get('/rfps');
     return response.data;
   },
 
   // Get RFP with details
-  getRFP: async (rfpId: number): Promise<RFPWithDetails> => {
+  getRFP: async (rfpId: string): Promise<RFPWithDetails> => {
     const response = await apiClient.get(`/rfps/${rfpId}`);
     return response.data;
   },
 
   // Update RFP
-  updateRFP: async (rfpId: number, rfp: RFPCreate): Promise<RFP> => {
+  updateRFP: async (rfpId: string, rfp: RFPCreate): Promise<RFP> => {
     const response = await apiClient.put(`/rfps/${rfpId}`, rfp);
     return response.data;
   },
 
   // Delete RFP
-  deleteRFP: async (rfpId: number): Promise<void> => {
+  deleteRFP: async (rfpId: string): Promise<void> => {
     await apiClient.delete(`/rfps/${rfpId}`);
   },
 
   // Room Nights
-  addRoomNight: async (rfpId: number, roomNight: RoomNightCreate): Promise<RoomNight> => {
+  addRoomNight: async (rfpId: string, roomNight: RoomNightCreate): Promise<RoomNight> => {
     const response = await apiClient.post(`/rfps/${rfpId}/room-nights`, roomNight);
     return response.data;
   },
 
-  getRoomNights: async (rfpId: number): Promise<RoomNight[]> => {
+  getRoomNights: async (rfpId: string): Promise<RoomNight[]> => {
     const response = await apiClient.get(`/rfps/${rfpId}/room-nights`);
     return response.data;
   },
 
-  updateRoomNight: async (roomNightId: number, roomNight: RoomNightCreate): Promise<RoomNight> => {
+  updateRoomNight: async (roomNightId: string, roomNight: RoomNightCreate): Promise<RoomNight> => {
     const response = await apiClient.put(`/rfps/room-nights/${roomNightId}`, roomNight);
     return response.data;
   },
 
-  deleteRoomNight: async (roomNightId: number): Promise<void> => {
+  deleteRoomNight: async (roomNightId: string): Promise<void> => {
     await apiClient.delete(`/rfps/room-nights/${roomNightId}`);
   },
 
   // Meeting Rooms
-  addMeetingRoom: async (rfpId: number, meetingRoom: MeetingRoomCreate): Promise<MeetingRoom> => {
+  addMeetingRoom: async (rfpId: string, meetingRoom: MeetingRoomCreate): Promise<MeetingRoom> => {
     const response = await apiClient.post(`/rfps/${rfpId}/meeting-rooms`, meetingRoom);
     return response.data;
   },
 
-  getMeetingRooms: async (rfpId: number): Promise<MeetingRoom[]> => {
+  getMeetingRooms: async (rfpId: string): Promise<MeetingRoom[]> => {
     const response = await apiClient.get(`/rfps/${rfpId}/meeting-rooms`);
     return response.data;
   },
 
   updateMeetingRoom: async (
-    meetingRoomId: number,
+    meetingRoomId: string,
     meetingRoom: MeetingRoomCreate
   ): Promise<MeetingRoom> => {
     const response = await apiClient.put(
@@ -109,13 +114,13 @@ export const rfpApi = {
     return response.data;
   },
 
-  deleteMeetingRoom: async (meetingRoomId: number): Promise<void> => {
+  deleteMeetingRoom: async (meetingRoomId: string): Promise<void> => {
     await apiClient.delete(`/rfps/meeting-rooms/${meetingRoomId}`);
   },
 
   // Custom Questions
   addCustomQuestion: async (
-    rfpId: number,
+    rfpId: string,
     question: CustomQuestionCreate,
     orderIndex: number = 0
   ): Promise<CustomQuestion> => {
@@ -126,13 +131,13 @@ export const rfpApi = {
     return response.data;
   },
 
-  getCustomQuestions: async (rfpId: number): Promise<CustomQuestion[]> => {
+  getCustomQuestions: async (rfpId: string): Promise<CustomQuestion[]> => {
     const response = await apiClient.get(`/rfps/${rfpId}/custom-questions`);
     return response.data;
   },
 
   updateCustomQuestion: async (
-    questionId: number,
+    questionId: string,
     question: CustomQuestionCreate
   ): Promise<CustomQuestion> => {
     const response = await apiClient.put(
@@ -142,16 +147,15 @@ export const rfpApi = {
     return response.data;
   },
 
-  deleteCustomQuestion: async (questionId: number): Promise<void> => {
+  deleteCustomQuestion: async (questionId: string): Promise<void> => {
     await apiClient.delete(`/rfps/custom-questions/${questionId}`);
   },
 };
 
-// Hotel Invitation APIs (Admin)
+// Hotel Invitation APIs (Admin) — invitations reference event_hotel_id (a candidate hotel on the event)
 export const hotelInvitationApi = {
-  // Create invitation
   createInvitation: async (
-    rfpId: number,
+    rfpId: string,
     invitation: HotelInvitationCreate
   ): Promise<HotelInvitation> => {
     const response = await apiClient.post(
@@ -161,20 +165,21 @@ export const hotelInvitationApi = {
     return response.data;
   },
 
-  // Get invitations for RFP
-  getInvitations: async (rfpId: number): Promise<HotelInvitationWithStats[]> => {
+  getInvitations: async (rfpId: string): Promise<HotelInvitationWithStats[]> => {
     const response = await apiClient.get(`/hotel-invitations/${rfpId}/invitations`);
     return response.data;
   },
 
-  // Get all responses for RFP
-  getAllResponses: async (rfpId: number): Promise<HotelResponseView[]> => {
+  deleteInvitation: async (invitationId: string): Promise<void> => {
+    await apiClient.delete(`/hotel-invitations/invitations/${invitationId}`);
+  },
+
+  getAllResponses: async (rfpId: string): Promise<HotelResponseView[]> => {
     const response = await apiClient.get(`/hotel-invitations/${rfpId}/responses`);
     return response.data;
   },
 
-  // Get single response
-  getSingleResponse: async (invitationId: number): Promise<HotelResponseView> => {
+  getSingleResponse: async (invitationId: string): Promise<HotelResponseView> => {
     const response = await apiClient.get(
       `/hotel-invitations/response/${invitationId}`
     );
@@ -184,7 +189,6 @@ export const hotelInvitationApi = {
 
 // Public Hotel Response APIs (No auth required)
 export const publicHotelApi = {
-  // Get RFP by GUID
   getRFPByGuid: async (guid: string): Promise<RFPWithDetails> => {
     const response = await axios.get(
       `${API_BASE_URL}/hotel-invitations/public/${guid}/rfp`
@@ -192,7 +196,6 @@ export const publicHotelApi = {
     return response.data;
   },
 
-  // Get invitation info
   getInvitationInfo: async (guid: string) => {
     const response = await axios.get(
       `${API_BASE_URL}/hotel-invitations/public/${guid}/invitation`
@@ -200,7 +203,6 @@ export const publicHotelApi = {
     return response.data;
   },
 
-  // Get my response
   getMyResponse: async (guid: string): Promise<HotelResponseView> => {
     const response = await axios.get(
       `${API_BASE_URL}/hotel-invitations/public/${guid}/response`
@@ -208,7 +210,6 @@ export const publicHotelApi = {
     return response.data;
   },
 
-  // Save room night response
   saveRoomNightResponse: async (
     guid: string,
     response: RoomNightResponseCreate
@@ -219,7 +220,6 @@ export const publicHotelApi = {
     );
   },
 
-  // Save meeting room response
   saveMeetingRoomResponse: async (
     guid: string,
     response: MeetingRoomResponseCreate
@@ -230,7 +230,6 @@ export const publicHotelApi = {
     );
   },
 
-  // Save custom question response
   saveCustomQuestionResponse: async (
     guid: string,
     response: CustomQuestionResponseCreate
@@ -241,7 +240,6 @@ export const publicHotelApi = {
     );
   },
 
-  // Save comments
   saveComments: async (guid: string, comments?: string): Promise<void> => {
     await axios.post(
       `${API_BASE_URL}/hotel-invitations/public/${guid}/comments`,
@@ -249,7 +247,6 @@ export const publicHotelApi = {
     );
   },
 
-  // Submit response
   submitResponse: async (guid: string): Promise<void> => {
     await axios.post(`${API_BASE_URL}/hotel-invitations/public/${guid}/submit`);
   },

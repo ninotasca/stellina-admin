@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../contexts/AuthContext';
 import { commissionApi } from '../services/commissionApi';
+import { parseLocalDate } from '../utils/date';
 import type {
   CommissionEventWithLineItems,
   CommissionLineItem,
@@ -61,7 +62,7 @@ const fmtMoneyK = (n: number) => {
 
 const fmtDate = (v: string | null | undefined): string => {
   if (!v) return '—';
-  return new Date(v).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+  return parseLocalDate(v).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
 };
 
 const num = (v: any): number => {
@@ -135,6 +136,15 @@ const Dashboard: React.FC = () => {
     });
     return out;
   }, [events]);
+
+  const needAttention = useMemo(
+    () => needToKnow.filter((r) => r.category.key === 'needs_invoice' || r.category.key === 'awaiting_payment'),
+    [needToKnow],
+  );
+  const worthWorkingOn = useMemo(
+    () => needToKnow.filter((r) => r.category.key === 'coming_soon' || r.category.key === 'in_pipeline'),
+    [needToKnow],
+  );
 
   // ---------- Commission rollup for current year, quarterly ----------
 
@@ -212,7 +222,7 @@ const Dashboard: React.FC = () => {
             <h3 className="text-base font-semibold text-gray-900">Events</h3>
             {!loading && (
               <span className="text-xs text-gray-500 ml-1">
-                {needToKnow.length} {needToKnow.length === 1 ? 'item' : 'items'} need attention
+                {needAttention.length} need attention · {worthWorkingOn.length} to keep an eye on
               </span>
             )}
           </button>
@@ -227,42 +237,24 @@ const Dashboard: React.FC = () => {
             ) : needToKnow.length === 0 ? (
               <p className="px-5 py-6 text-center text-sm text-gray-500">All clear — no events flagged.</p>
             ) : (
-              <table className="min-w-full divide-y divide-gray-200 text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <Th>Category</Th>
-                    <Th>Meeting</Th>
-                    <Th>Location</Th>
-                    <Th>Start</Th>
-                    <Th>End</Th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {needToKnow.map(({ category, event }, i) => (
-                    <tr key={`${event.id}-${category.key}-${i}`} className="hover:bg-gray-50">
-                      <td className="px-3 py-2">
-                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${category.bg} ${category.text}`}>
-                          {category.label}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <button
-                          onClick={() => navigate(`/commissions/${event.id}`)}
-                          className="text-blue-700 hover:underline font-medium text-left"
-                        >
-                          {event.meeting_name}
-                        </button>
-                        {event.client_company_name && (
-                          <div className="text-xs text-gray-500">{event.client_company_name}</div>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-gray-700">{eventLocation(event) || '—'}</td>
-                      <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(event.arrival_date)}</td>
-                      <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(event.depart_date)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <>
+                <EventGroup
+                  title="Need attention"
+                  subtitle="Needs Invoice · Awaiting Payment"
+                  tone="red"
+                  rows={needAttention}
+                  emptyText="All clear — nothing to invoice or chase."
+                  onRowClick={(eventId) => navigate(`/commissions/${eventId}`)}
+                />
+                <EventGroup
+                  title="Keep your eye on"
+                  subtitle="Coming Soon · In Pipeline"
+                  tone="green"
+                  rows={worthWorkingOn}
+                  emptyText="Pipeline is empty."
+                  onRowClick={(eventId) => navigate(`/commissions/${eventId}`)}
+                />
+              </>
             )}
           </div>
         )}
@@ -325,6 +317,91 @@ const Th: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
     {children}
   </th>
+);
+
+interface EventGroupProps {
+  title: string;
+  subtitle: string;
+  tone: 'red' | 'green';
+  rows: { category: typeof CATEGORY_DEF[number]; event: CommissionEventWithLineItems }[];
+  emptyText: string;
+  onRowClick: (eventId: string) => void;
+}
+
+const TONE_BANNER: Record<EventGroupProps['tone'], string> = {
+  red: 'bg-red-50 text-red-900 border-y border-red-200',
+  green: 'bg-emerald-50 text-emerald-900 border-y border-emerald-200',
+};
+
+// Shared column widths so the two grouped tables line up.
+const EventCols: React.FC = () => (
+  <colgroup>
+    <col style={{ width: '160px' }} />
+    <col />
+    <col style={{ width: '200px' }} />
+    <col style={{ width: '110px' }} />
+    <col style={{ width: '110px' }} />
+  </colgroup>
+);
+
+const EventGroup: React.FC<EventGroupProps> = ({
+  title, subtitle, tone, rows, emptyText, onRowClick,
+}) => (
+  <div className="border-b border-gray-100 last:border-b-0">
+    <div className={`px-5 py-2.5 flex items-baseline gap-2 ${TONE_BANNER[tone]}`}>
+      <h4 className="text-xs font-semibold uppercase tracking-wider">{title}</h4>
+      <span className="text-[11px] opacity-75">{subtitle}</span>
+      <span className="ml-auto text-[11px] opacity-75">
+        {rows.length} {rows.length === 1 ? 'item' : 'items'}
+      </span>
+    </div>
+    {rows.length === 0 ? (
+      <p className="px-5 py-4 text-center text-sm text-gray-500">{emptyText}</p>
+    ) : (
+      <table className="min-w-full table-fixed divide-y divide-gray-200 text-sm">
+        <EventCols />
+        <thead className="bg-white">
+          <tr>
+            <Th>Category</Th>
+            <Th>Meeting</Th>
+            <Th>Location</Th>
+            <Th>Start</Th>
+            <Th>End</Th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {rows.map(({ category, event }, i) => (
+            <tr key={`${event.id}-${category.key}-${i}`} className="hover:bg-gray-50">
+              <td className="px-3 py-2">
+                <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${category.bg} ${category.text}`}>
+                  {category.label}
+                </span>
+              </td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => onRowClick(event.id)}
+                  className="text-blue-700 hover:underline font-medium text-left truncate block max-w-full"
+                  title={event.meeting_name}
+                >
+                  {event.meeting_name}
+                </button>
+                {event.client_company_name && (
+                  <div className="text-xs text-gray-500 truncate" title={event.client_company_name}>
+                    {event.client_company_name}
+                  </div>
+                )}
+              </td>
+              <td className="px-3 py-2 text-gray-700 truncate" title={eventLocation(event)}>
+                {eventLocation(event) || '—'}
+              </td>
+              <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(event.arrival_date)}</td>
+              <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(event.depart_date)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )}
+  </div>
 );
 
 const Kpi: React.FC<{ label: string; value: string; sub?: string; tone?: 'green' | 'blue' | 'indigo' | 'yellow' }> = ({ label, value, sub, tone }) => {

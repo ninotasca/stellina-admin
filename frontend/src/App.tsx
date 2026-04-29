@@ -38,7 +38,7 @@ function App() {
             <Route path="/login-attempts" element={<LoginAttempts />} />
 
             <Route path="/rfps" element={<RFPList />} />
-            <Route path="/rfps/new" element={<RFPForm />} />
+            <Route path="/commissions/:eventId/rfps/new" element={<RFPForm />} />
             <Route path="/rfps/:id/edit" element={<RFPForm />} />
             <Route path="/rfps/:rfpId/invitations" element={<HotelInvitations />} />
             <Route path="/rfps/:rfpId/responses" element={<ResponseComparison />} />

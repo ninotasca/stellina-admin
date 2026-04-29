@@ -1,38 +1,39 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { rfpApi, hotelInvitationApi } from '../services/rfpApi';
-import type { HotelInvitationCreate, HotelInvitationWithStats, RFP } from '../types/rfp';
+import { commissionApi } from '../services/commissionApi';
+import type { HotelInvitationWithStats, RFP } from '../types/rfp';
+import type { CommissionEventWithLineItems, HotelConsidered } from '../types/commission';
+
+import { parseLocalDate } from '../utils/date';
+
+const fmtDate = (v?: string | null) =>
+  v ? parseLocalDate(v).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—';
 
 const HotelInvitations: React.FC = () => {
   const { rfpId } = useParams<{ rfpId: string }>();
   const navigate = useNavigate();
   const [rfp, setRfp] = useState<RFP | null>(null);
+  const [event, setEvent] = useState<CommissionEventWithLineItems | null>(null);
   const [invitations, setInvitations] = useState<HotelInvitationWithStats[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAddForm, setShowAddForm] = useState(false);
-
-  // Form state
-  const [hotelName, setHotelName] = useState('');
-  const [contactName, setContactName] = useState('');
-  const [contactEmail, setContactEmail] = useState('');
 
   useEffect(() => {
-    if (rfpId) {
-      loadData();
-    }
+    if (rfpId) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rfpId]);
 
   const loadData = async () => {
     if (!rfpId) return;
-    
     try {
       setLoading(true);
-      const [rfpData, invitationsData] = await Promise.all([
-        rfpApi.getRFP(parseInt(rfpId)),
-        hotelInvitationApi.getInvitations(parseInt(rfpId)),
+      const rfpData = await rfpApi.getRFP(rfpId);
+      const [eventData, invitationsData] = await Promise.all([
+        commissionApi.getEvent(rfpData.event_id),
+        hotelInvitationApi.getInvitations(rfpId),
       ]);
       setRfp(rfpData);
+      setEvent(eventData);
       setInvitations(invitationsData);
     } catch (err) {
       console.error('Failed to load data', err);
@@ -41,29 +42,23 @@ const HotelInvitations: React.FC = () => {
     }
   };
 
-  const handleAddInvitation = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const inviteHotel = async (hotel: HotelConsidered) => {
     if (!rfpId) return;
-
     try {
-      const invitation: HotelInvitationCreate = {
-        hotel_name: hotelName,
-        contact_name: contactName,
-        contact_email: contactEmail,
-      };
-
-      await hotelInvitationApi.createInvitation(parseInt(rfpId), invitation);
-      
-      // Reset form
-      setHotelName('');
-      setContactName('');
-      setContactEmail('');
-      setShowAddForm(false);
-      
-      // Reload invitations
+      await hotelInvitationApi.createInvitation(rfpId, { event_hotel_id: hotel.id });
       loadData();
     } catch (err: any) {
       alert(err.response?.data?.detail || 'Failed to create invitation');
+    }
+  };
+
+  const revokeInvitation = async (invitationId: string) => {
+    if (!window.confirm('Revoke this invitation? Their public link will stop working.')) return;
+    try {
+      await hotelInvitationApi.deleteInvitation(invitationId);
+      loadData();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to revoke invitation');
     }
   };
 
@@ -74,25 +69,19 @@ const HotelInvitations: React.FC = () => {
   };
 
   const getStatusBadge = (status: string) => {
-    const styles = {
+    const styles: Record<string, string> = {
       not_started: 'bg-gray-200 text-gray-800',
       in_progress: 'bg-yellow-200 text-yellow-800',
       completed: 'bg-green-200 text-green-800',
     };
-
-    const labels = {
+    const labels: Record<string, string> = {
       not_started: 'Not Started',
       in_progress: 'In Progress',
       completed: 'Completed',
     };
-
     return (
-      <span
-        className={`px-2 py-1 text-xs font-semibold rounded-full ${
-          styles[status as keyof typeof styles]
-        }`}
-      >
-        {labels[status as keyof typeof labels]}
+      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${styles[status] || ''}`}>
+        {labels[status] || status}
       </span>
     );
   };
@@ -104,8 +93,7 @@ const HotelInvitations: React.FC = () => {
       </div>
     );
   }
-
-  if (!rfp) {
+  if (!rfp || !event) {
     return (
       <div className="max-w-7xl mx-auto p-6">
         <div className="text-center">RFP not found</div>
@@ -113,92 +101,85 @@ const HotelInvitations: React.FC = () => {
     );
   }
 
+  const invitedHotelIds = new Set(invitations.map((inv) => inv.event_hotel_id).filter(Boolean) as string[]);
+  const availableHotels = event.hotels_considered.filter((h) => !invitedHotelIds.has(h.id));
+
   return (
     <div className="max-w-7xl mx-auto p-6">
       <div className="mb-6">
         <button
-          onClick={() => navigate('/rfps')}
+          onClick={() => navigate(`/commissions/${event.id}`)}
           className="text-blue-600 hover:text-blue-800 mb-2"
         >
-          ← Back to RFPs
+          ← Back to Event
         </button>
         <div className="flex justify-between items-center">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Hotel Invitations</h1>
             <p className="text-gray-600 mt-1">
-              {rfp.client_name} - {new Date(rfp.start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} - {new Date(rfp.end_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+              {event.meeting_name}
+              {' · '}
+              {fmtDate(event.arrival_date)} – {fmtDate(event.depart_date)}
             </p>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => navigate(`/rfps/${rfpId}/responses`)}
-              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-            >
-              View Responses
-            </button>
-            <button
-              onClick={() => setShowAddForm(!showAddForm)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-            >
-              {showAddForm ? 'Cancel' : 'Add Hotel'}
-            </button>
-          </div>
+          <button
+            onClick={() => navigate(`/rfps/${rfpId}/responses`)}
+            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+          >
+            View Responses
+          </button>
         </div>
       </div>
 
-      {showAddForm && (
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4">Add Hotel Invitation</h2>
-          <form onSubmit={handleAddInvitation}>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Hotel Name *
-                </label>
-                <input
-                  type="text"
-                  value={hotelName}
-                  onChange={(e) => setHotelName(e.target.value)}
-                  required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Contact Name *
-                </label>
-                <input
-                  type="text"
-                  value={contactName}
-                  onChange={(e) => setContactName(e.target.value)}
-                  required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Contact Email *
-                </label>
-                <input
-                  type="email"
-                  value={contactEmail}
-                  onChange={(e) => setContactEmail(e.target.value)}
-                  required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                />
-              </div>
-            </div>
-            <button
-              type="submit"
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-            >
-              Create Invitation
-            </button>
-          </form>
-        </div>
-      )}
+      {/* Available candidate hotels (from the event's hotels_considered) */}
+      <div className="bg-white rounded-lg shadow p-6 mb-6">
+        <h2 className="text-xl font-semibold mb-4">Candidate Hotels</h2>
+        {event.hotels_considered.length === 0 ? (
+          <p className="text-sm text-gray-500 italic">
+            No candidate hotels on this event yet. Add some on the event page first.
+          </p>
+        ) : availableHotels.length === 0 ? (
+          <p className="text-sm text-gray-500 italic">
+            All candidate hotels have already been invited.
+          </p>
+        ) : (
+          <ul className="divide-y divide-gray-100">
+            {availableHotels.map((h) => (
+              <li key={h.id} className="flex items-center justify-between py-3">
+                <div>
+                  <div className="text-sm font-medium text-gray-900">
+                    {h.name}
+                    {h.is_selected && (
+                      <span className="ml-2 text-[10px] uppercase tracking-wider text-emerald-700 font-semibold px-1.5 py-0.5 bg-emerald-100 rounded">
+                        Selected
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    {h.contact_name || <em className="text-gray-400">No contact</em>}
+                    {h.contact_email && <span className="ml-2">{h.contact_email}</span>}
+                    {!h.contact_email && (
+                      <span className="ml-2 text-orange-600">⚠ contact email missing</span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => inviteHotel(h)}
+                  className="px-3 py-1.5 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
+                >
+                  Invite
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
+      {/* Invitations table */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="px-6 py-4 border-b">
+          <h2 className="text-xl font-semibold">Invited Hotels</h2>
+        </div>
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
@@ -226,7 +207,7 @@ const HotelInvitations: React.FC = () => {
             {invitations.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
-                  No hotels invited yet. Click "Add Hotel" to create an invitation.
+                  No hotels invited yet. Pick from the candidates above.
                 </td>
               </tr>
             ) : (
@@ -234,12 +215,14 @@ const HotelInvitations: React.FC = () => {
                 <tr key={invitation.id}>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">
-                      {invitation.hotel_name}
+                      {invitation.hotel_name || <em className="text-gray-400">(deleted)</em>}
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="text-sm text-gray-900">{invitation.contact_name}</div>
-                    <div className="text-xs text-gray-500">{invitation.contact_email}</div>
+                    <div className="text-sm text-gray-900">
+                      {invitation.contact_name || <em className="text-gray-400">—</em>}
+                    </div>
+                    <div className="text-xs text-gray-500">{invitation.contact_email || '—'}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {getStatusBadge(invitation.response_status)}
@@ -270,14 +253,18 @@ const HotelInvitations: React.FC = () => {
                     </button>
                     {invitation.response_status !== 'not_started' && (
                       <button
-                        onClick={() =>
-                          navigate(`/rfps/${rfpId}/responses/${invitation.id}`)
-                        }
-                        className="text-green-600 hover:text-green-900"
+                        onClick={() => navigate(`/rfps/${rfpId}/responses`)}
+                        className="text-green-600 hover:text-green-900 mr-4"
                       >
                         View Response
                       </button>
                     )}
+                    <button
+                      onClick={() => revokeInvitation(invitation.id)}
+                      className="text-red-600 hover:text-red-900"
+                    >
+                      Revoke
+                    </button>
                   </td>
                 </tr>
               ))

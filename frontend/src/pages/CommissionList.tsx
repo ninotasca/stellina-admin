@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { commissionApi } from '../services/commissionApi';
 import MultiSelect from '../components/MultiSelect';
 import { downloadCSV, timestampedFilename } from '../utils/csv';
+import { parseLocalDate } from '../utils/date';
 import type {
   CommissionEventWithLineItems,
   CommissionLineItem,
@@ -81,7 +82,7 @@ const fmtMoney = (v: string | number | null | undefined): string => {
 
 const fmtDate = (v: string | null | undefined) => {
   if (!v) return '';
-  return new Date(v).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+  return parseLocalDate(v).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
 };
 
 const eventLocation = (ev: CommissionEventWithLineItems): string => {
@@ -185,22 +186,27 @@ const PRESET_TONE: Record<string, { active: string; idle: string }> = {
 // Sort keys per view
 type EventSortKey = 'meeting' | 'status' | 'location' | 'start' | 'end' | 'lineCount' | 'payment' | 'total';
 type LineSortKey = 'meeting' | 'type' | 'vendor' | 'arrival' | 'depart' | 'payment' | 'commission';
-type ExpandedSortKey = 'meeting' | 'type' | 'vendor' | 'resort' | 'booking' | 'arrival' | 'depart' | 'peakRooms' | 'rns' | 'revenue' | 'pct' | 'commission' | 'paymentStatus' | 'invoiceSent' | 'paidDate' | 'cashForward';
+type ExpandedSortKey = 'meeting' | 'type' | 'vendor' | 'resort' | 'booking' | 'arrival' | 'depart' | 'revenue' | 'pct' | 'commission' | 'paymentStatus' | 'invoiceSent' | 'paidDate';
 
 const CommissionList: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [events, setEvents] = useState<CommissionEventWithLineItems[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [view, setView] = useState<ViewMode>('events');
 
-  // Filters (multi-select)
+  // Filters (multi-select). Year is seeded from ?year=YYYY so links from
+  // breadcrumbs / dashboards can deep-link into a year-filtered list.
   const [search, setSearch] = useState('');
   const [statusSel, setStatusSel] = useState<Set<BookingStatus>>(new Set());
   const [typeSel, setTypeSel] = useState<Set<LineType>>(new Set());
   const [paymentSel, setPaymentSel] = useState<Set<PaymentStatus>>(new Set());
-  const [yearSel, setYearSel] = useState<Set<string>>(new Set());
+  const [yearSel, setYearSel] = useState<Set<string>>(() => {
+    const y = searchParams.get('year');
+    return y ? new Set([y]) : new Set();
+  });
   const [preset, setPreset] = useState<PresetKey | null>(null);
 
   // Years available across the loaded data (line item arrival dates)
@@ -360,15 +366,12 @@ const CommissionList: React.FC = () => {
         case 'booking': cmp = (BOOKING_STATUS_RANK[a.event.booking_status] || 0) - (BOOKING_STATUS_RANK[b.event.booking_status] || 0); break;
         case 'arrival': cmp = (al.arrival_date || '9999').localeCompare(bl.arrival_date || '9999'); break;
         case 'depart': cmp = (al.depart_date || '9999').localeCompare(bl.depart_date || '9999'); break;
-        case 'peakRooms': cmp = (al.peak_rooms || 0) - (bl.peak_rooms || 0); break;
-        case 'rns': cmp = (al.total_room_nights || 0) - (bl.total_room_nights || 0); break;
         case 'revenue': cmp = Number(al.revenue || 0) - Number(bl.revenue || 0); break;
         case 'pct': cmp = Number(al.commission_pct || 0) - Number(bl.commission_pct || 0); break;
         case 'commission': cmp = Number(al.commission_amount || 0) - Number(bl.commission_amount || 0); break;
         case 'paymentStatus': cmp = (PAYMENT_RANK[al.payment_status] || 0) - (PAYMENT_RANK[bl.payment_status] || 0); break;
         case 'invoiceSent': cmp = (al.invoice_sent_date || '9999').localeCompare(bl.invoice_sent_date || '9999'); break;
         case 'paidDate': cmp = (al.paid_date || '9999').localeCompare(bl.paid_date || '9999'); break;
-        case 'cashForward': cmp = Number(al.cash_forward || 0) - Number(bl.cash_forward || 0); break;
       }
       return dir === 'asc' ? cmp : -cmp;
     });
@@ -418,15 +421,13 @@ const CommissionList: React.FC = () => {
     const rows = sortedExpanded.map(({ event: ev, line: l }) => [
       ev.meeting_name, l.line_type, l.company_name || '', l.resort_hotel || '',
       ev.booking_status, l.arrival_date || '', l.depart_date || '',
-      l.peak_rooms ?? '', l.total_room_nights ?? '',
       Number(l.revenue || 0), l.commission_pct ?? '', Number(l.commission_amount || 0),
       l.payment_status, l.invoice_sent_date || '', l.paid_date || '',
-      l.my_points || '', Number(l.cash_forward || 0),
     ]);
     downloadCSV(timestampedFilename('commission-detail'),
       ['Meeting', 'Type', 'Vendor', 'Resort/Hotel', 'Booking', 'Arrival', 'Depart',
-       'Peak Rooms', 'Total RNs', 'Revenue', 'Comm %', 'Commission',
-       'Payment', 'Invoice Sent', 'Paid Date', 'My Points', 'Cash Forward'],
+       'Revenue', 'Comm %', 'Commission',
+       'Payment', 'Invoice Sent', 'Paid Date'],
       rows);
   };
 
@@ -837,16 +838,12 @@ const ExpandedView: React.FC<{
               <SortHeader active={sort.key === 'booking'} dir={sort.dir} onClick={() => onSort('booking')}>Booking</SortHeader>
               <SortHeader active={sort.key === 'arrival'} dir={sort.dir} onClick={() => onSort('arrival')}>Arrival</SortHeader>
               <SortHeader active={sort.key === 'depart'} dir={sort.dir} onClick={() => onSort('depart')}>Depart</SortHeader>
-              <SortHeader right active={sort.key === 'peakRooms'} dir={sort.dir} onClick={() => onSort('peakRooms')}>Peak Rms</SortHeader>
-              <SortHeader right active={sort.key === 'rns'} dir={sort.dir} onClick={() => onSort('rns')}>Total RNs</SortHeader>
               <SortHeader right active={sort.key === 'revenue'} dir={sort.dir} onClick={() => onSort('revenue')}>Revenue</SortHeader>
               <SortHeader right active={sort.key === 'pct'} dir={sort.dir} onClick={() => onSort('pct')}>Comm %</SortHeader>
               <SortHeader right active={sort.key === 'commission'} dir={sort.dir} onClick={() => onSort('commission')}>Commission</SortHeader>
               <SortHeader active={sort.key === 'paymentStatus'} dir={sort.dir} onClick={() => onSort('paymentStatus')}>Payment</SortHeader>
               <SortHeader active={sort.key === 'invoiceSent'} dir={sort.dir} onClick={() => onSort('invoiceSent')}>Invoice Sent</SortHeader>
               <SortHeader active={sort.key === 'paidDate'} dir={sort.dir} onClick={() => onSort('paidDate')}>Paid Date</SortHeader>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">My Points</th>
-              <SortHeader right active={sort.key === 'cashForward'} dir={sort.dir} onClick={() => onSort('cashForward')}>Cash Forward</SortHeader>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
@@ -870,8 +867,6 @@ const ExpandedView: React.FC<{
                 </td>
                 <td className="px-2 py-1.5 whitespace-nowrap">{fmtDate(l.arrival_date) || '—'}</td>
                 <td className="px-2 py-1.5 whitespace-nowrap">{fmtDate(l.depart_date) || '—'}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{l.peak_rooms ?? '—'}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{l.total_room_nights ?? '—'}</td>
                 <td className="px-2 py-1.5 text-right tabular-nums">{fmtMoney(l.revenue) || '—'}</td>
                 <td className="px-2 py-1.5 text-right tabular-nums">{l.commission_pct ? `${Number(l.commission_pct)}%` : '—'}</td>
                 <td className="px-2 py-1.5 text-right tabular-nums font-medium">{fmtMoney(l.commission_amount) || '—'}</td>
@@ -882,8 +877,6 @@ const ExpandedView: React.FC<{
                 </td>
                 <td className="px-2 py-1.5 whitespace-nowrap">{fmtDate(l.invoice_sent_date) || '—'}</td>
                 <td className="px-2 py-1.5 whitespace-nowrap">{fmtDate(l.paid_date) || '—'}</td>
-                <td className="px-2 py-1.5 text-gray-700 truncate max-w-[180px]" title={l.my_points || ''}>{l.my_points || '—'}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{fmtMoney(l.cash_forward) || '—'}</td>
               </tr>
             ))}
           </tbody>

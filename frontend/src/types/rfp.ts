@@ -1,29 +1,24 @@
-// RFP Types
+// RFP Types — anchored to a commission_event.
+// IDs are UUID strings (Supabase gen_random_uuid()).
+
 export interface RFP {
-  id: number;
-  client_name: string;
-  start_date: string;
-  end_date: string;
-  dates_fixed: boolean;
+  id: string;
+  event_id: string;
   rfp_type: string;
   instructions?: string;
-  created_by: number;
+  created_by?: string;
   created_at: string;
   updated_at: string;
 }
 
 export interface RFPCreate {
-  client_name: string;
-  start_date: string;
-  end_date: string;
-  dates_fixed: boolean;
   rfp_type: string;
   instructions?: string;
 }
 
 export interface RoomNight {
-  id: number;
-  rfp_id: number;
+  id: string;
+  rfp_id: string;
   date: string;
   single_occupancy: number;
   double_occupancy: number;
@@ -36,8 +31,8 @@ export interface RoomNightCreate {
 }
 
 export interface MeetingRoom {
-  id: number;
-  rfp_id: number;
+  id: string;
+  rfp_id: string;
   date: string;
   title: string;
   description?: string;
@@ -51,12 +46,14 @@ export interface MeetingRoomCreate {
   num_people: number;
 }
 
+export type CustomQuestionType = 'textarea' | 'textfield' | 'yes_no' | 'select' | 'multiselect';
+
 export interface CustomQuestion {
-  id: number;
-  rfp_id: number;
+  id: string;
+  rfp_id: string;
   question_text: string;
   is_required: boolean;
-  question_type: 'textarea' | 'textfield' | 'yes_no' | 'select' | 'multiselect';
+  question_type: CustomQuestionType;
   options?: string[];
   order_index: number;
 }
@@ -64,7 +61,7 @@ export interface CustomQuestion {
 export interface CustomQuestionCreate {
   question_text: string;
   is_required: boolean;
-  question_type: 'textarea' | 'textfield' | 'yes_no' | 'select' | 'multiselect';
+  question_type: CustomQuestionType;
   options?: string[];
 }
 
@@ -74,13 +71,21 @@ export interface RFPWithDetails extends RFP {
   custom_questions: CustomQuestion[];
 }
 
-// Hotel Invitation Types
+// Cross-event listing (top-nav RFPs page)
+export interface RFPWithEventSummary extends RFP {
+  event_meeting_name?: string;
+  event_client_company_name?: string;
+  event_arrival_date?: string;
+  event_depart_date?: string;
+  invitation_count: number;
+  completed_count: number;
+}
+
+// Hotel Invitation Types — invitation references a candidate hotel via event_hotel_id.
 export interface HotelInvitation {
-  id: number;
-  rfp_id: number;
-  hotel_name: string;
-  contact_name: string;
-  contact_email: string;
+  id: string;
+  rfp_id: string;
+  event_hotel_id?: string;
   guid: string;
   created_at: string;
   first_viewed_at?: string;
@@ -90,60 +95,72 @@ export interface HotelInvitation {
 }
 
 export interface HotelInvitationCreate {
-  hotel_name: string;
-  contact_name: string;
-  contact_email: string;
+  event_hotel_id: string;
 }
 
 export interface HotelInvitationWithStats extends HotelInvitation {
+  hotel_name?: string;
+  contact_name?: string;
+  contact_email?: string;
+  contact_phone?: string;
   response_status: 'not_started' | 'in_progress' | 'completed';
 }
 
 // Hotel Response Types
 export interface RoomNightResponse {
-  id: number;
-  hotel_invitation_id: number;
-  room_night_id: number;
+  id: string;
+  invitation_id: string;
+  room_night_id: string;
   single_rate?: number;
   double_rate?: number;
+  updated_at: string;
 }
 
 export interface RoomNightResponseCreate {
-  room_night_id: number;
+  room_night_id: string;
   single_rate?: number;
   double_rate?: number;
 }
 
 export interface MeetingRoomResponse {
-  id: number;
-  hotel_invitation_id: number;
-  meeting_room_id: number;
+  id: string;
+  invitation_id: string;
+  meeting_room_id: string;
   suggested_location?: string;
   setup_fee_per_person?: number;
+  updated_at: string;
 }
 
 export interface MeetingRoomResponseCreate {
-  meeting_room_id: number;
+  meeting_room_id: string;
   suggested_location?: string;
   setup_fee_per_person?: number;
 }
 
 export interface CustomQuestionResponse {
-  id: number;
-  hotel_invitation_id: number;
-  custom_question_id: number;
+  id: string;
+  invitation_id: string;
+  custom_question_id: string;
   answer?: string;
   answer_list?: string[];
+  updated_at: string;
 }
 
 export interface CustomQuestionResponseCreate {
-  custom_question_id: number;
+  custom_question_id: string;
   answer?: string;
   answer_list?: string[];
 }
 
 export interface HotelResponseView {
-  invitation: HotelInvitation;
+  invitation_id: string;
+  rfp_id: string;
+  event_hotel_id?: string;
+  hotel_name?: string;
+  contact_name?: string;
+  contact_email?: string;
+  completed_at?: string;
+  last_updated_at?: string;
   room_night_responses: RoomNightResponse[];
   meeting_room_responses: MeetingRoomResponse[];
   custom_question_responses: CustomQuestionResponse[];

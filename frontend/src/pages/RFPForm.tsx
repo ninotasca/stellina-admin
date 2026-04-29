@@ -1,220 +1,206 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { rfpApi } from '../services/rfpApi';
+import { commissionApi } from '../services/commissionApi';
 import type {
+  CustomQuestionCreate,
+  CustomQuestionType,
+  MeetingRoomCreate,
   RFPCreate,
   RoomNightCreate,
-  MeetingRoomCreate,
-  CustomQuestionCreate,
 } from '../types/rfp';
+import type { CommissionEventWithLineItems } from '../types/commission';
+
+interface RoomNightRow {
+  id?: string;
+  date: string;
+  single: string;
+  double: string;
+}
+
+interface MeetingRoomRow {
+  id?: string;
+  date: string;
+  title: string;
+  description: string;
+  numPeople: string;
+}
+
+interface CustomQuestionRow {
+  id?: string;
+  questionText: string;
+  isRequired: boolean;
+  questionType: CustomQuestionType;
+  options: string[];
+}
+
+import { parseLocalDate } from '../utils/date';
+
+const fmtDate = (v?: string | null) =>
+  v ? parseLocalDate(v).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—';
 
 const RFPForm: React.FC = () => {
   const navigate = useNavigate();
-  const { id } = useParams<{ id: string }>();
-  const isEditMode = !!id;
+  // Two entry points:
+  //   /commissions/:eventId/rfps/new   -> create
+  //   /rfps/:id/edit                   -> edit
+  const { id: rfpIdParam, eventId: eventIdParam } = useParams<{ id?: string; eventId?: string }>();
+  const isEditMode = !!rfpIdParam;
 
-  // Basic RFP Info
-  const [clientName, setClientName] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [datesFixed, setDatesFixed] = useState(true);
+  const [event, setEvent] = useState<CommissionEventWithLineItems | null>(null);
+  const [eventId, setEventId] = useState<string | null>(eventIdParam ?? null);
+
   const [rfpType, setRfpType] = useState('All Inclusive - Standard');
   const [instructions, setInstructions] = useState('');
-
-  // Room Nights
-  const [roomNights, setRoomNights] = useState<
-    Array<{ date: string; single: string; double: string; id?: number }>
-  >([]);
-
-  // Meeting Rooms
-  const [meetingRooms, setMeetingRooms] = useState<
-    Array<{
-      date: string;
-      title: string;
-      description: string;
-      numPeople: string;
-      id?: number;
-    }>
-  >([]);
-
-  // Custom Questions
-  const [customQuestions, setCustomQuestions] = useState<
-    Array<{
-      questionText: string;
-      isRequired: boolean;
-      questionType: string;
-      options: string[];
-      id?: number;
-    }>
-  >([]);
+  const [roomNights, setRoomNights] = useState<RoomNightRow[]>([]);
+  const [meetingRooms, setMeetingRooms] = useState<MeetingRoomRow[]>([]);
+  const [customQuestions, setCustomQuestions] = useState<CustomQuestionRow[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load RFP if editing
   useEffect(() => {
-    if (isEditMode && id) {
-      loadRFP(parseInt(id));
-    }
-  }, [id, isEditMode]);
-
-  const loadRFP = async (rfpId: number) => {
-    try {
-      setLoading(true);
-      const rfp = await rfpApi.getRFP(rfpId);
-      setClientName(rfp.client_name);
-      setStartDate(rfp.start_date);
-      setEndDate(rfp.end_date);
-      setDatesFixed(rfp.dates_fixed);
-      setRfpType(rfp.rfp_type);
-      setInstructions(rfp.instructions || '');
-
-      setRoomNights(
-        rfp.room_nights.map((rn) => ({
-          date: rn.date,
-          single: rn.single_occupancy.toString(),
-          double: rn.double_occupancy.toString(),
-          id: rn.id,
-        }))
-      );
-
-      setMeetingRooms(
-        rfp.meeting_rooms.map((mr) => ({
-          date: mr.date,
-          title: mr.title,
-          description: mr.description || '',
-          numPeople: mr.num_people.toString(),
-          id: mr.id,
-        }))
-      );
-
-      setCustomQuestions(
-        rfp.custom_questions.map((q) => ({
-          questionText: q.question_text,
-          isRequired: q.is_required,
-          questionType: q.question_type,
-          options: q.options || [],
-          id: q.id,
-        }))
-      );
-    } catch (err) {
-      setError('Failed to load RFP');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Auto-generate room nights when dates change
-  useEffect(() => {
-    if (startDate && endDate && new Date(startDate) <= new Date(endDate)) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      const nights = [];
-      const current = new Date(start);
-      
-      while (current <= end) {
-        nights.push({
-          date: current.toISOString().split('T')[0],
-          single: '',
-          double: '',
-        });
-        current.setDate(current.getDate() + 1);
+    let cancelled = false;
+    const load = async () => {
+      try {
+        setLoading(true);
+        if (isEditMode && rfpIdParam) {
+          const rfp = await rfpApi.getRFP(rfpIdParam);
+          if (cancelled) return;
+          setEventId(rfp.event_id);
+          setRfpType(rfp.rfp_type);
+          setInstructions(rfp.instructions || '');
+          setRoomNights(
+            rfp.room_nights.map((rn) => ({
+              id: rn.id,
+              date: rn.date,
+              single: rn.single_occupancy.toString(),
+              double: rn.double_occupancy.toString(),
+            }))
+          );
+          setMeetingRooms(
+            rfp.meeting_rooms.map((mr) => ({
+              id: mr.id,
+              date: mr.date,
+              title: mr.title,
+              description: mr.description || '',
+              numPeople: mr.num_people.toString(),
+            }))
+          );
+          setCustomQuestions(
+            rfp.custom_questions.map((q) => ({
+              id: q.id,
+              questionText: q.question_text,
+              isRequired: q.is_required,
+              questionType: q.question_type,
+              options: q.options || [],
+            }))
+          );
+          const ev = await commissionApi.getEvent(rfp.event_id);
+          if (!cancelled) setEvent(ev);
+        } else if (eventIdParam) {
+          const ev = await commissionApi.getEvent(eventIdParam);
+          if (cancelled) return;
+          setEvent(ev);
+          // Auto-generate room nights for each day of the trip
+          if (ev.arrival_date && ev.depart_date) {
+            const start = new Date(ev.arrival_date);
+            const end = new Date(ev.depart_date);
+            const nights: RoomNightRow[] = [];
+            const cur = new Date(start);
+            while (cur <= end) {
+              nights.push({
+                date: cur.toISOString().split('T')[0],
+                single: '',
+                double: '',
+              });
+              cur.setDate(cur.getDate() + 1);
+            }
+            setRoomNights(nights);
+          }
+        }
+      } catch (err: any) {
+        if (!cancelled) setError(err.response?.data?.detail || 'Failed to load');
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      
-      setRoomNights(nights);
-    }
-  }, [startDate, endDate]);
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [isEditMode, rfpIdParam, eventIdParam]);
 
   const handleSave = async () => {
+    if (!eventId) {
+      setError('Missing event reference');
+      return;
+    }
     try {
       setLoading(true);
       setError(null);
 
       const rfpData: RFPCreate = {
-        client_name: clientName,
-        start_date: startDate,
-        end_date: endDate,
-        dates_fixed: datesFixed,
         rfp_type: rfpType,
         instructions: instructions || undefined,
       };
 
-      let rfpId: number;
-
-      if (isEditMode && id) {
-        // Update RFP
-        await rfpApi.updateRFP(parseInt(id), rfpData);
-        rfpId = parseInt(id);
+      let rfpId: string;
+      if (isEditMode && rfpIdParam) {
+        await rfpApi.updateRFP(rfpIdParam, rfpData);
+        rfpId = rfpIdParam;
       } else {
-        // Create RFP
-        const newRfp = await rfpApi.createRFP(rfpData);
+        const newRfp = await rfpApi.createRFPForEvent(eventId, rfpData);
         rfpId = newRfp.id;
       }
 
-      // Save room nights
       for (const rn of roomNights) {
-        if (rn.date) {
-          const single = parseInt(rn.single) || 0;
-          const double = parseInt(rn.double) || 0;
-          
-          const roomNightData: RoomNightCreate = {
-            date: rn.date,
-            single_occupancy: single,
-            double_occupancy: double,
-          };
-
-          if (rn.id) {
-            await rfpApi.updateRoomNight(rn.id, roomNightData);
-          } else {
-            await rfpApi.addRoomNight(rfpId, roomNightData);
-          }
+        if (!rn.date) continue;
+        const data: RoomNightCreate = {
+          date: rn.date,
+          single_occupancy: parseInt(rn.single) || 0,
+          double_occupancy: parseInt(rn.double) || 0,
+        };
+        if (rn.id) {
+          await rfpApi.updateRoomNight(rn.id, data);
+        } else {
+          await rfpApi.addRoomNight(rfpId, data);
         }
       }
 
-      // Save meeting rooms
       for (const mr of meetingRooms) {
-        if (mr.title) {
-          const numPeople = parseInt(mr.numPeople) || 0;
-          
-          const meetingRoomData: MeetingRoomCreate = {
-            date: mr.date,
-            title: mr.title,
-            description: mr.description || undefined,
-            num_people: numPeople,
-          };
-
-          if (mr.id) {
-            await rfpApi.updateMeetingRoom(mr.id, meetingRoomData);
-          } else {
-            await rfpApi.addMeetingRoom(rfpId, meetingRoomData);
-          }
+        if (!mr.title) continue;
+        const data: MeetingRoomCreate = {
+          date: mr.date,
+          title: mr.title,
+          description: mr.description || undefined,
+          num_people: parseInt(mr.numPeople) || 0,
+        };
+        if (mr.id) {
+          await rfpApi.updateMeetingRoom(mr.id, data);
+        } else {
+          await rfpApi.addMeetingRoom(rfpId, data);
         }
       }
 
-      // Save custom questions
       for (let i = 0; i < customQuestions.length; i++) {
         const q = customQuestions[i];
-        if (q.questionText) {
-          const questionData: CustomQuestionCreate = {
-            question_text: q.questionText,
-            is_required: q.isRequired,
-            question_type: q.questionType as any,
-            options:
-              q.questionType === 'select' || q.questionType === 'multiselect'
-                ? q.options
-                : undefined,
-          };
-
-          if (q.id) {
-            await rfpApi.updateCustomQuestion(q.id, questionData);
-          } else {
-            await rfpApi.addCustomQuestion(rfpId, questionData, i);
-          }
+        if (!q.questionText) continue;
+        const data: CustomQuestionCreate = {
+          question_text: q.questionText,
+          is_required: q.isRequired,
+          question_type: q.questionType,
+          options:
+            q.questionType === 'select' || q.questionType === 'multiselect'
+              ? q.options
+              : undefined,
+        };
+        if (q.id) {
+          await rfpApi.updateCustomQuestion(q.id, data);
+        } else {
+          await rfpApi.addCustomQuestion(rfpId, data, i);
         }
       }
 
-      navigate('/rfps');
+      navigate(`/commissions/${eventId}`);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to save RFP');
       console.error(err);
@@ -223,38 +209,28 @@ const RFPForm: React.FC = () => {
     }
   };
 
-  // Event Date handlers - removed
-
-  // Room Night handlers - simplified
   const addRoomNight = () =>
     setRoomNights([...roomNights, { date: '', single: '', double: '' }]);
   const removeRoomNight = (index: number) =>
     setRoomNights(roomNights.filter((_, i) => i !== index));
 
-  // Meeting Room handlers
   const addMeetingRoom = () =>
     setMeetingRooms([
       ...meetingRooms,
-      { date: startDate || '', title: '', description: '', numPeople: '' },
+      { date: event?.arrival_date || '', title: '', description: '', numPeople: '' },
     ]);
   const removeMeetingRoom = (index: number) =>
     setMeetingRooms(meetingRooms.filter((_, i) => i !== index));
 
-  // Custom Question handlers
   const addCustomQuestion = () =>
     setCustomQuestions([
       ...customQuestions,
-      {
-        questionText: '',
-        isRequired: false,
-        questionType: 'textfield',
-        options: [],
-      },
+      { questionText: '', isRequired: false, questionType: 'textfield', options: [] },
     ]);
   const removeCustomQuestion = (index: number) =>
     setCustomQuestions(customQuestions.filter((_, i) => i !== index));
 
-  if (loading && isEditMode) {
+  if (loading && isEditMode && !event) {
     return (
       <div className="max-w-6xl mx-auto p-6">
         <div className="text-center">Loading...</div>
@@ -265,8 +241,14 @@ const RFPForm: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto p-6">
       <div className="mb-6">
+        <button
+          onClick={() => navigate(eventId ? `/commissions/${eventId}` : '/rfps')}
+          className="text-sm text-gray-500 hover:text-gray-700 mb-2"
+        >
+          ← Back
+        </button>
         <h1 className="text-3xl font-bold text-gray-900">
-          {isEditMode ? 'Edit RFP' : 'Create New RFP'}
+          {isEditMode ? 'Edit RFP' : 'New RFP'}
         </h1>
       </div>
 
@@ -274,69 +256,26 @@ const RFPForm: React.FC = () => {
         <div className="mb-4 p-4 bg-red-100 text-red-700 rounded-md">{error}</div>
       )}
 
+      {/* Event context (read-only) */}
+      {event && (
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
+          <div className="text-xs uppercase tracking-wider text-gray-500 mb-1">Commission Event</div>
+          <div className="text-lg font-semibold text-gray-900">{event.meeting_name}</div>
+          <div className="text-sm text-gray-700 mt-1">
+            {event.client_company_name || <em className="text-gray-400">No client</em>}
+            {' · '}
+            {fmtDate(event.arrival_date)} – {fmtDate(event.depart_date)}
+            {event.dates_flexible && <span className="ml-1 text-xs text-gray-500">(flexible)</span>}
+          </div>
+        </div>
+      )}
+
       {/* Basic Information */}
       <div className="bg-white rounded-lg shadow p-6 mb-6">
         <h2 className="text-xl font-semibold mb-4">Basic Information</h2>
-
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Client Name *
-            </label>
-            <input
-              type="text"
-              value={clientName}
-              onChange={(e) => setClientName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Start Date *
-              </label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                End Date *
-              </label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                required
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Are Event Dates Fixed? *
-            </label>
-            <select
-              value={datesFixed ? 'fixed' : 'negotiable'}
-              onChange={(e) => setDatesFixed(e.target.value === 'fixed')}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            >
-              <option value="fixed">Fixed</option>
-              <option value="negotiable">Negotiable</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              RFP Type *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">RFP Type *</label>
             <select
               value={rfpType}
               onChange={(e) => setRfpType(e.target.value)}
@@ -345,7 +284,6 @@ const RFPForm: React.FC = () => {
               <option value="All Inclusive - Standard">All Inclusive - Standard</option>
             </select>
           </div>
-
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Instructions for Hoteliers
@@ -367,55 +305,47 @@ const RFPForm: React.FC = () => {
           <div key={index} className="border-b pb-4 mb-4 last:border-b-0">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Date
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
                 <input
                   type="date"
                   value={rn.date}
                   onChange={(e) => {
-                    const newRoomNights = [...roomNights];
-                    newRoomNights[index].date = e.target.value;
-                    setRoomNights(newRoomNights);
+                    const next = [...roomNights];
+                    next[index].date = e.target.value;
+                    setRoomNights(next);
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Single Occupancy
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Single Occupancy</label>
                 <input
                   type="text"
                   value={rn.single}
                   onChange={(e) => {
-                    const value = e.target.value;
-                    if (value === '' || /^\d+$/.test(value)) {
-                      const newRoomNights = [...roomNights];
-                      newRoomNights[index].single = value;
-                      setRoomNights(newRoomNights);
+                    const v = e.target.value;
+                    if (v === '' || /^\d+$/.test(v)) {
+                      const next = [...roomNights];
+                      next[index].single = v;
+                      setRoomNights(next);
                     }
                   }}
-                  placeholder=""
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Double Occupancy
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Double Occupancy</label>
                 <input
                   type="text"
                   value={rn.double}
                   onChange={(e) => {
-                    const value = e.target.value;
-                    if (value === '' || /^\d+$/.test(value)) {
-                      const newRoomNights = [...roomNights];
-                      newRoomNights[index].double = value;
-                      setRoomNights(newRoomNights);
+                    const v = e.target.value;
+                    if (v === '' || /^\d+$/.test(v)) {
+                      const next = [...roomNights];
+                      next[index].double = v;
+                      setRoomNights(next);
                     }
                   }}
-                  placeholder=""
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 />
               </div>
@@ -445,65 +375,56 @@ const RFPForm: React.FC = () => {
           <div key={index} className="border-b pb-4 mb-4 last:border-b-0">
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Date
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
                 <input
                   type="date"
                   value={mr.date}
                   onChange={(e) => {
-                    const newMeetingRooms = [...meetingRooms];
-                    newMeetingRooms[index].date = e.target.value;
-                    setMeetingRooms(newMeetingRooms);
+                    const next = [...meetingRooms];
+                    next[index].date = e.target.value;
+                    setMeetingRooms(next);
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Title
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
                 <input
                   type="text"
                   value={mr.title}
                   onChange={(e) => {
-                    const newMeetingRooms = [...meetingRooms];
-                    newMeetingRooms[index].title = e.target.value;
-                    setMeetingRooms(newMeetingRooms);
+                    const next = [...meetingRooms];
+                    next[index].title = e.target.value;
+                    setMeetingRooms(next);
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Number of People
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Number of People</label>
                 <input
                   type="text"
                   value={mr.numPeople}
                   onChange={(e) => {
-                    const value = e.target.value;
-                    if (value === '' || /^\d+$/.test(value)) {
-                      const newMeetingRooms = [...meetingRooms];
-                      newMeetingRooms[index].numPeople = value;
-                      setMeetingRooms(newMeetingRooms);
+                    const v = e.target.value;
+                    if (v === '' || /^\d+$/.test(v)) {
+                      const next = [...meetingRooms];
+                      next[index].numPeople = v;
+                      setMeetingRooms(next);
                     }
                   }}
-                  placeholder=""
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Description
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
                 <input
                   type="text"
                   value={mr.description}
                   onChange={(e) => {
-                    const newMeetingRooms = [...meetingRooms];
-                    newMeetingRooms[index].description = e.target.value;
-                    setMeetingRooms(newMeetingRooms);
+                    const next = [...meetingRooms];
+                    next[index].description = e.target.value;
+                    setMeetingRooms(next);
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 />
@@ -534,31 +455,27 @@ const RFPForm: React.FC = () => {
           <div key={index} className="border-b pb-4 mb-4 last:border-b-0">
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Question Text
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Question Text</label>
                 <input
                   type="text"
                   value={q.questionText}
                   onChange={(e) => {
-                    const newQuestions = [...customQuestions];
-                    newQuestions[index].questionText = e.target.value;
-                    setCustomQuestions(newQuestions);
+                    const next = [...customQuestions];
+                    next[index].questionText = e.target.value;
+                    setCustomQuestions(next);
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Question Type
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Question Type</label>
                   <select
                     value={q.questionType}
                     onChange={(e) => {
-                      const newQuestions = [...customQuestions];
-                      newQuestions[index].questionType = e.target.value;
-                      setCustomQuestions(newQuestions);
+                      const next = [...customQuestions];
+                      next[index].questionType = e.target.value as CustomQuestionType;
+                      setCustomQuestions(next);
                     }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   >
@@ -575,15 +492,13 @@ const RFPForm: React.FC = () => {
                       type="checkbox"
                       checked={q.isRequired}
                       onChange={(e) => {
-                        const newQuestions = [...customQuestions];
-                        newQuestions[index].isRequired = e.target.checked;
-                        setCustomQuestions(newQuestions);
+                        const next = [...customQuestions];
+                        next[index].isRequired = e.target.checked;
+                        setCustomQuestions(next);
                       }}
                       className="mr-2"
                     />
-                    <span className="text-sm font-medium text-gray-700">
-                      Required
-                    </span>
+                    <span className="text-sm font-medium text-gray-700">Required</span>
                   </label>
                 </div>
               </div>
@@ -596,12 +511,12 @@ const RFPForm: React.FC = () => {
                     type="text"
                     value={q.options.join(', ')}
                     onChange={(e) => {
-                      const newQuestions = [...customQuestions];
-                      newQuestions[index].options = e.target.value
+                      const next = [...customQuestions];
+                      next[index].options = e.target.value
                         .split(',')
                         .map((o) => o.trim())
                         .filter((o) => o);
-                      setCustomQuestions(newQuestions);
+                      setCustomQuestions(next);
                     }}
                     placeholder="Option 1, Option 2, Option 3"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
@@ -629,13 +544,13 @@ const RFPForm: React.FC = () => {
       <div className="flex gap-4">
         <button
           onClick={handleSave}
-          disabled={loading}
+          disabled={loading || !eventId}
           className="px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400"
         >
           {loading ? 'Saving...' : isEditMode ? 'Update RFP' : 'Create RFP'}
         </button>
         <button
-          onClick={() => navigate('/rfps')}
+          onClick={() => navigate(eventId ? `/commissions/${eventId}` : '/rfps')}
           className="px-6 py-3 bg-gray-500 text-white rounded-md hover:bg-gray-600"
         >
           Cancel

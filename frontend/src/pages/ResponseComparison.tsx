@@ -1,40 +1,43 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { rfpApi, hotelInvitationApi } from '../services/rfpApi';
+import { commissionApi } from '../services/commissionApi';
 import type { HotelResponseView, RFPWithDetails } from '../types/rfp';
+import type { CommissionEventWithLineItems } from '../types/commission';
+
+import { parseLocalDate } from '../utils/date';
+
+const fmtDate = (v?: string | null) =>
+  v ? parseLocalDate(v).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '—';
 
 const ResponseComparison: React.FC = () => {
   const { rfpId } = useParams<{ rfpId: string }>();
   const navigate = useNavigate();
   const [rfp, setRfp] = useState<RFPWithDetails | null>(null);
+  const [event, setEvent] = useState<CommissionEventWithLineItems | null>(null);
   const [responses, setResponses] = useState<HotelResponseView[]>([]);
-  const [selectedHotels, setSelectedHotels] = useState<Set<number>>(new Set());
+  const [selectedHotels, setSelectedHotels] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (rfpId) {
-      loadData();
-    }
+    if (rfpId) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rfpId]);
 
   const loadData = async () => {
     if (!rfpId) return;
-
     try {
       setLoading(true);
-      const [rfpData, responsesData] = await Promise.all([
-        rfpApi.getRFP(parseInt(rfpId)),
-        hotelInvitationApi.getAllResponses(parseInt(rfpId)),
+      const rfpData = await rfpApi.getRFP(rfpId);
+      const [eventData, responsesData] = await Promise.all([
+        commissionApi.getEvent(rfpData.event_id),
+        hotelInvitationApi.getAllResponses(rfpId),
       ]);
-
       setRfp(rfpData);
-      setResponses(responsesData.filter((r) => r.invitation.completed_at));
-      
-      // Select all hotels by default
-      setSelectedHotels(
-        new Set(responsesData.filter((r) => r.invitation.completed_at).map((r) => r.invitation.id))
-      );
+      setEvent(eventData);
+      const completed = responsesData.filter((r) => r.completed_at);
+      setResponses(completed);
+      setSelectedHotels(new Set(completed.map((r) => r.invitation_id)));
     } catch (err) {
       console.error('Failed to load data', err);
     } finally {
@@ -42,112 +45,87 @@ const ResponseComparison: React.FC = () => {
     }
   };
 
-  const toggleHotel = (hotelId: number) => {
-    const newSelected = new Set(selectedHotels);
-    if (newSelected.has(hotelId)) {
-      newSelected.delete(hotelId);
-    } else {
-      newSelected.add(hotelId);
-    }
-    setSelectedHotels(newSelected);
+  const toggleHotel = (invitationId: string) => {
+    const next = new Set(selectedHotels);
+    if (next.has(invitationId)) next.delete(invitationId);
+    else next.add(invitationId);
+    setSelectedHotels(next);
   };
 
   const exportToCSV = () => {
     if (!rfp) return;
-
-    const filteredResponses = responses.filter((r) =>
-      selectedHotels.has(r.invitation.id)
-    );
-
-    if (filteredResponses.length === 0) {
+    const filtered = responses.filter((r) => selectedHotels.has(r.invitation_id));
+    if (filtered.length === 0) {
       alert('No hotels selected for export');
       return;
     }
 
-    // Build CSV
+    const rowName = (r: HotelResponseView) => r.hotel_name || 'Unknown';
     let csv = '';
+    csv += 'Category,Item,' + filtered.map(rowName).join(',') + '\n';
 
-    // Header row
-    csv += 'Category,Item,' + filteredResponses.map((r) => r.invitation.hotel_name).join(',') + '\n';
-
-    // Room nights
     rfp.room_nights.forEach((rn) => {
-      const date = new Date(rn.date).toLocaleDateString();
-      
-      // Single rates
+      const date = parseLocalDate(rn.date).toLocaleDateString();
       csv += `Room Nights,${date} - Single (${rn.single_occupancy} rooms),`;
-      csv += filteredResponses
+      csv += filtered
         .map((r) => {
-          const resp = r.room_night_responses.find((rnr) => rnr.room_night_id === rn.id);
+          const resp = r.room_night_responses.find((x) => x.room_night_id === rn.id);
           return resp?.single_rate || '';
         })
         .join(',');
       csv += '\n';
-
-      // Double rates
       csv += `Room Nights,${date} - Double (${rn.double_occupancy} rooms),`;
-      csv += filteredResponses
+      csv += filtered
         .map((r) => {
-          const resp = r.room_night_responses.find((rnr) => rnr.room_night_id === rn.id);
+          const resp = r.room_night_responses.find((x) => x.room_night_id === rn.id);
           return resp?.double_rate || '';
         })
         .join(',');
       csv += '\n';
     });
 
-    // Meeting rooms
     rfp.meeting_rooms.forEach((mr) => {
-      const date = new Date(mr.date).toLocaleDateString();
-      
-      // Location
+      const date = parseLocalDate(mr.date).toLocaleDateString();
       csv += `Meeting Rooms,"${mr.title} (${date}) - Location",`;
-      csv += filteredResponses
+      csv += filtered
         .map((r) => {
-          const resp = r.meeting_room_responses.find((mrr) => mrr.meeting_room_id === mr.id);
+          const resp = r.meeting_room_responses.find((x) => x.meeting_room_id === mr.id);
           return `"${resp?.suggested_location || ''}"`;
         })
         .join(',');
       csv += '\n';
-
-      // Setup fee
       csv += `Meeting Rooms,"${mr.title} (${date}) - Setup Fee",`;
-      csv += filteredResponses
+      csv += filtered
         .map((r) => {
-          const resp = r.meeting_room_responses.find((mrr) => mrr.meeting_room_id === mr.id);
+          const resp = r.meeting_room_responses.find((x) => x.meeting_room_id === mr.id);
           return resp?.setup_fee_per_person || '';
         })
         .join(',');
       csv += '\n';
     });
 
-    // Custom questions
     rfp.custom_questions.forEach((q) => {
       csv += `Custom Questions,"${q.question_text.replace(/"/g, '""')}",`;
-      csv += filteredResponses
+      csv += filtered
         .map((r) => {
-          const resp = r.custom_question_responses.find((qr) => qr.custom_question_id === q.id);
-          if (resp?.answer_list) {
-            return `"${resp.answer_list.join('; ')}"`;
-          }
+          const resp = r.custom_question_responses.find((x) => x.custom_question_id === q.id);
+          if (resp?.answer_list) return `"${resp.answer_list.join('; ')}"`;
           return `"${resp?.answer || ''}"`;
         })
         .join(',');
       csv += '\n';
     });
 
-    // Comments
     csv += 'Comments,Additional Comments,';
-    csv += filteredResponses
-      .map((r) => `"${r.comments || ''}"`)
-      .join(',');
+    csv += filtered.map((r) => `"${r.comments || ''}"`).join(',');
     csv += '\n';
 
-    // Download
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `rfp-comparison-${rfp.client_name}-${Date.now()}.csv`;
+    const slug = (event?.meeting_name || 'rfp').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    a.download = `rfp-comparison-${slug}-${Date.now()}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -159,8 +137,7 @@ const ResponseComparison: React.FC = () => {
       </div>
     );
   }
-
-  if (!rfp) {
+  if (!rfp || !event) {
     return (
       <div className="max-w-full mx-auto p-6">
         <div className="text-center">RFP not found</div>
@@ -168,7 +145,7 @@ const ResponseComparison: React.FC = () => {
     );
   }
 
-  const filteredResponses = responses.filter((r) => selectedHotels.has(r.invitation.id));
+  const filtered = responses.filter((r) => selectedHotels.has(r.invitation_id));
 
   return (
     <div className="max-w-full mx-auto p-6">
@@ -183,7 +160,9 @@ const ResponseComparison: React.FC = () => {
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Response Comparison</h1>
             <p className="text-gray-600 mt-1">
-              {rfp.client_name} - {new Date(rfp.start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} - {new Date(rfp.end_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+              {event.meeting_name}
+              {' · '}
+              {fmtDate(event.arrival_date)} – {fmtDate(event.depart_date)}
             </p>
           </div>
           <button
@@ -195,31 +174,31 @@ const ResponseComparison: React.FC = () => {
         </div>
       </div>
 
-      {/* Hotel Selection */}
+      {/* Hotel selection */}
       <div className="bg-white rounded-lg shadow p-4 mb-6">
         <h2 className="text-lg font-semibold mb-3">Select Hotels to Compare</h2>
         <div className="flex flex-wrap gap-3">
           {responses.map((r) => (
-            <label key={r.invitation.id} className="flex items-center">
+            <label key={r.invitation_id} className="flex items-center">
               <input
                 type="checkbox"
-                checked={selectedHotels.has(r.invitation.id)}
-                onChange={() => toggleHotel(r.invitation.id)}
+                checked={selectedHotels.has(r.invitation_id)}
+                onChange={() => toggleHotel(r.invitation_id)}
                 className="mr-2"
               />
-              <span className="text-sm font-medium">{r.invitation.hotel_name}</span>
+              <span className="text-sm font-medium">{r.hotel_name || 'Unknown'}</span>
             </label>
           ))}
         </div>
       </div>
 
-      {filteredResponses.length === 0 ? (
+      {filtered.length === 0 ? (
         <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded">
           No hotels selected or no completed responses available.
         </div>
       ) : (
         <>
-          {/* Room Nights Comparison */}
+          {/* Room Nights */}
           {rfp.room_nights.length > 0 && (
             <div className="bg-white rounded-lg shadow overflow-x-auto mb-6">
               <div className="p-4 border-b">
@@ -228,18 +207,11 @@ const ResponseComparison: React.FC = () => {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
-                      Date
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
-                      Type
-                    </th>
-                    {filteredResponses.map((r) => (
-                      <th
-                        key={r.invitation.id}
-                        className="px-4 py-3 text-left text-sm font-medium text-gray-700"
-                      >
-                        {r.invitation.hotel_name}
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Date</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Type</th>
+                    {filtered.map((r) => (
+                      <th key={r.invitation_id} className="px-4 py-3 text-left text-sm font-medium text-gray-700">
+                        {r.hotel_name || 'Unknown'}
                       </th>
                     ))}
                   </tr>
@@ -248,24 +220,17 @@ const ResponseComparison: React.FC = () => {
                   {rfp.room_nights.map((rn) => (
                     <React.Fragment key={rn.id}>
                       <tr className="bg-gray-50">
-                        <td
-                          rowSpan={2}
-                          className="px-4 py-3 text-sm font-medium text-gray-900"
-                        >
-                          {new Date(rn.date).toLocaleDateString()}
+                        <td rowSpan={2} className="px-4 py-3 text-sm font-medium text-gray-900">
+                          {parseLocalDate(rn.date).toLocaleDateString()}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900">
                           Single ({rn.single_occupancy} rooms)
                         </td>
-                        {filteredResponses.map((r) => {
-                          const resp = r.room_night_responses.find(
-                            (rnr) => rnr.room_night_id === rn.id
-                          );
+                        {filtered.map((r) => {
+                          const resp = r.room_night_responses.find((x) => x.room_night_id === rn.id);
                           return (
-                            <td key={r.invitation.id} className="px-4 py-3 text-sm">
-                              {resp?.single_rate
-                                ? `$${resp.single_rate.toFixed(2)}`
-                                : '-'}
+                            <td key={r.invitation_id} className="px-4 py-3 text-sm">
+                              {resp?.single_rate ? `$${resp.single_rate.toFixed(2)}` : '-'}
                             </td>
                           );
                         })}
@@ -274,15 +239,11 @@ const ResponseComparison: React.FC = () => {
                         <td className="px-4 py-3 text-sm text-gray-900">
                           Double ({rn.double_occupancy} rooms)
                         </td>
-                        {filteredResponses.map((r) => {
-                          const resp = r.room_night_responses.find(
-                            (rnr) => rnr.room_night_id === rn.id
-                          );
+                        {filtered.map((r) => {
+                          const resp = r.room_night_responses.find((x) => x.room_night_id === rn.id);
                           return (
-                            <td key={r.invitation.id} className="px-4 py-3 text-sm">
-                              {resp?.double_rate
-                                ? `$${resp.double_rate.toFixed(2)}`
-                                : '-'}
+                            <td key={r.invitation_id} className="px-4 py-3 text-sm">
+                              {resp?.double_rate ? `$${resp.double_rate.toFixed(2)}` : '-'}
                             </td>
                           );
                         })}
@@ -294,7 +255,7 @@ const ResponseComparison: React.FC = () => {
             </div>
           )}
 
-          {/* Meeting Rooms Comparison */}
+          {/* Meeting rooms */}
           {rfp.meeting_rooms.length > 0 && (
             <div className="bg-white rounded-lg shadow overflow-x-auto mb-6">
               <div className="p-4 border-b">
@@ -303,18 +264,11 @@ const ResponseComparison: React.FC = () => {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
-                      Meeting
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
-                      Info
-                    </th>
-                    {filteredResponses.map((r) => (
-                      <th
-                        key={r.invitation.id}
-                        className="px-4 py-3 text-left text-sm font-medium text-gray-700"
-                      >
-                        {r.invitation.hotel_name}
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Meeting</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Info</th>
+                    {filtered.map((r) => (
+                      <th key={r.invitation_id} className="px-4 py-3 text-left text-sm font-medium text-gray-700">
+                        {r.hotel_name || 'Unknown'}
                       </th>
                     ))}
                   </tr>
@@ -323,41 +277,29 @@ const ResponseComparison: React.FC = () => {
                   {rfp.meeting_rooms.map((mr) => (
                     <React.Fragment key={mr.id}>
                       <tr className="bg-gray-50">
-                        <td
-                          rowSpan={2}
-                          className="px-4 py-3 text-sm font-medium text-gray-900"
-                        >
+                        <td rowSpan={2} className="px-4 py-3 text-sm font-medium text-gray-900">
                           <div>{mr.title}</div>
                           <div className="text-xs text-gray-500">
-                            {new Date(mr.date).toLocaleDateString()} | {mr.num_people}{' '}
-                            people
+                            {parseLocalDate(mr.date).toLocaleDateString()} | {mr.num_people} people
                           </div>
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900">Location</td>
-                        {filteredResponses.map((r) => {
-                          const resp = r.meeting_room_responses.find(
-                            (mrr) => mrr.meeting_room_id === mr.id
-                          );
+                        {filtered.map((r) => {
+                          const resp = r.meeting_room_responses.find((x) => x.meeting_room_id === mr.id);
                           return (
-                            <td key={r.invitation.id} className="px-4 py-3 text-sm">
+                            <td key={r.invitation_id} className="px-4 py-3 text-sm">
                               {resp?.suggested_location || '-'}
                             </td>
                           );
                         })}
                       </tr>
                       <tr>
-                        <td className="px-4 py-3 text-sm text-gray-900">
-                          Setup Fee (per person)
-                        </td>
-                        {filteredResponses.map((r) => {
-                          const resp = r.meeting_room_responses.find(
-                            (mrr) => mrr.meeting_room_id === mr.id
-                          );
+                        <td className="px-4 py-3 text-sm text-gray-900">Setup Fee (per person)</td>
+                        {filtered.map((r) => {
+                          const resp = r.meeting_room_responses.find((x) => x.meeting_room_id === mr.id);
                           return (
-                            <td key={r.invitation.id} className="px-4 py-3 text-sm">
-                              {resp?.setup_fee_per_person
-                                ? `$${resp.setup_fee_per_person.toFixed(2)}`
-                                : '-'}
+                            <td key={r.invitation_id} className="px-4 py-3 text-sm">
+                              {resp?.setup_fee_per_person ? `$${resp.setup_fee_per_person.toFixed(2)}` : '-'}
                             </td>
                           );
                         })}
@@ -369,7 +311,7 @@ const ResponseComparison: React.FC = () => {
             </div>
           )}
 
-          {/* Custom Questions Comparison */}
+          {/* Custom questions */}
           {rfp.custom_questions.length > 0 && (
             <div className="bg-white rounded-lg shadow overflow-x-auto mb-6">
               <div className="p-4 border-b">
@@ -378,15 +320,10 @@ const ResponseComparison: React.FC = () => {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">
-                      Question
-                    </th>
-                    {filteredResponses.map((r) => (
-                      <th
-                        key={r.invitation.id}
-                        className="px-4 py-3 text-left text-sm font-medium text-gray-700"
-                      >
-                        {r.invitation.hotel_name}
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Question</th>
+                    {filtered.map((r) => (
+                      <th key={r.invitation_id} className="px-4 py-3 text-left text-sm font-medium text-gray-700">
+                        {r.hotel_name || 'Unknown'}
                       </th>
                     ))}
                   </tr>
@@ -396,19 +333,13 @@ const ResponseComparison: React.FC = () => {
                     <tr key={q.id}>
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">
                         {q.question_text}
-                        {q.is_required && (
-                          <span className="text-red-500 ml-1">*</span>
-                        )}
+                        {q.is_required && <span className="text-red-500 ml-1">*</span>}
                       </td>
-                      {filteredResponses.map((r) => {
-                        const resp = r.custom_question_responses.find(
-                          (qr) => qr.custom_question_id === q.id
-                        );
+                      {filtered.map((r) => {
+                        const resp = r.custom_question_responses.find((x) => x.custom_question_id === q.id);
                         return (
-                          <td key={r.invitation.id} className="px-4 py-3 text-sm">
-                            {resp?.answer_list
-                              ? resp.answer_list.join(', ')
-                              : resp?.answer || '-'}
+                          <td key={r.invitation_id} className="px-4 py-3 text-sm">
+                            {resp?.answer_list ? resp.answer_list.join(', ') : resp?.answer || '-'}
                           </td>
                         );
                       })}
@@ -419,7 +350,7 @@ const ResponseComparison: React.FC = () => {
             </div>
           )}
 
-          {/* Comments Comparison */}
+          {/* Comments */}
           <div className="bg-white rounded-lg shadow overflow-x-auto mb-6">
             <div className="p-4 border-b">
               <h2 className="text-xl font-semibold">Additional Comments</h2>
@@ -427,23 +358,17 @@ const ResponseComparison: React.FC = () => {
             <table className="min-w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  {filteredResponses.map((r) => (
-                    <th
-                      key={r.invitation.id}
-                      className="px-4 py-3 text-left text-sm font-medium text-gray-700"
-                    >
-                      {r.invitation.hotel_name}
+                  {filtered.map((r) => (
+                    <th key={r.invitation_id} className="px-4 py-3 text-left text-sm font-medium text-gray-700">
+                      {r.hotel_name || 'Unknown'}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  {filteredResponses.map((r) => (
-                    <td
-                      key={r.invitation.id}
-                      className="px-4 py-3 text-sm align-top"
-                    >
+                  {filtered.map((r) => (
+                    <td key={r.invitation_id} className="px-4 py-3 text-sm align-top">
                       {r.comments || <span className="text-gray-400">No comments</span>}
                     </td>
                   ))}

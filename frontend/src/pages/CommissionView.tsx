@@ -1,16 +1,27 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { commissionApi } from '../services/commissionApi';
+import { nimbleApi, type NimbleCompanyLite, type NimblePersonLite } from '../services/nimbleApi';
+import { rfpApi } from '../services/rfpApi';
 import NoteFeed from '../components/NoteFeed';
+import NimbleTypeahead, { type NimbleSelection, type PickerItem } from '../components/NimbleTypeahead';
+import HotelsConsidered from '../components/HotelsConsidered';
+import CurrencyInput from '../components/CurrencyInput';
+import NimbleLink from '../components/NimbleLink';
+import { parseLocalDate } from '../utils/date';
 import type {
   BookingStatus,
+  CommissionEventUpdate,
   CommissionEventWithLineItems,
   CommissionLineItem,
+  CommissionLineItemCreate,
   CommissionNote,
+  ConsiderationType,
   HotelConsidered,
   LineType,
   PaymentStatus,
 } from '../types/commission';
+import type { RFP } from '../types/rfp';
 
 // ---------- Shared visual tokens ----------
 
@@ -19,15 +30,6 @@ const LINE_TYPE_COLOR: Record<LineType, string> = {
   dmc: '#4f46e5',
   air: '#0284c7',
   other: '#475569',
-};
-
-const BOOKING_STATUS_COLORS: Record<BookingStatus, string> = {
-  prospect: '#9ca3af',
-  tentative: '#eab308',
-  definite: '#16a34a',
-  on_hold: '#f97316',
-  cancelled: '#ef4444',
-  lost: '#1f2937',
 };
 
 const BOOKING_STATUS_LABEL: Record<BookingStatus, string> = {
@@ -39,6 +41,48 @@ const BOOKING_STATUS_LABEL: Record<BookingStatus, string> = {
   lost: 'Lost',
 };
 
+// Matched palette per booking status — used for hero card background, badges, and accents.
+type Tone = 'green' | 'yellow' | 'red' | 'orange' | 'gray' | 'darkgray' | 'blue';
+
+const STATUS_TONE: Record<BookingStatus, Tone> = {
+  prospect: 'gray',
+  tentative: 'yellow',
+  definite: 'green',
+  on_hold: 'orange',
+  cancelled: 'red',
+  lost: 'darkgray',
+};
+
+const TONE_BG: Record<Tone, string> = {
+  green: 'bg-emerald-50 ring-emerald-200',
+  yellow: 'bg-yellow-50 ring-yellow-200',
+  red: 'bg-red-50 ring-red-200',
+  orange: 'bg-orange-50 ring-orange-200',
+  gray: 'bg-gray-50 ring-gray-200',
+  darkgray: 'bg-gray-100 ring-gray-300',
+  blue: 'bg-blue-50 ring-blue-200',
+};
+
+const TONE_TEXT: Record<Tone, string> = {
+  green: 'text-emerald-900',
+  yellow: 'text-yellow-900',
+  red: 'text-red-900',
+  orange: 'text-orange-900',
+  gray: 'text-gray-900',
+  darkgray: 'text-gray-900',
+  blue: 'text-blue-900',
+};
+
+const TONE_BADGE: Record<Tone, string> = {
+  green: 'bg-emerald-600 text-white',
+  yellow: 'bg-yellow-500 text-white',
+  red: 'bg-red-600 text-white',
+  orange: 'bg-orange-500 text-white',
+  gray: 'bg-gray-500 text-white',
+  darkgray: 'bg-gray-800 text-white',
+  blue: 'bg-blue-600 text-white',
+};
+
 const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
   pending_booking: 'Pending Booking',
   upcoming: 'Upcoming',
@@ -46,6 +90,13 @@ const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
   paid: 'Paid',
   on_hold: 'On Hold',
   cancelled: 'Cancelled',
+};
+
+const CONSIDERATION_LABEL: Record<ConsiderationType, string> = {
+  hotel: 'Hotel',
+  dmc: 'DMC',
+  air: 'Air',
+  other: 'Other',
 };
 
 const fmtMoney = (v: string | number | null | undefined): string => {
@@ -57,7 +108,7 @@ const fmtMoney = (v: string | number | null | undefined): string => {
 
 const fmtDate = (v: string | null | undefined, opts?: Intl.DateTimeFormatOptions): string => {
   if (!v) return '—';
-  return new Date(v).toLocaleDateString('en-US', opts ?? { month: 'short', day: 'numeric', year: 'numeric' });
+  return parseLocalDate(v).toLocaleDateString('en-US', opts ?? { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
 const num = (v: string | null | undefined): number => {
@@ -65,132 +116,144 @@ const num = (v: string | null | undefined): number => {
   return Number.isNaN(n) ? 0 : n;
 };
 
-// ---------- Hero / headline derivation ----------
+const daysBetween = (isoDate: string): number =>
+  Math.floor((Date.now() - new Date(isoDate).getTime()) / (1000 * 60 * 60 * 24));
 
-interface Hero {
+// ---------- Payment status (definite + trip complete) ----------
+
+interface PaymentSummary {
+  tone: Tone;
   title: string;
-  amount: string | null;
   subtext: string;
-  tone: 'green' | 'blue' | 'orange' | 'red' | 'gray' | 'indigo' | 'yellow';
-  alerts: string[];
+  amount: string | null;
 }
 
-function deriveHero(event: CommissionEventWithLineItems): Hero {
+function derivePaymentSummary(event: CommissionEventWithLineItems): PaymentSummary | null {
+  if (event.booking_status !== 'definite') return null;
   const today = new Date().toISOString().slice(0, 10);
-  const lines = event.line_items;
-  const total = lines.reduce((s, li) => s + num(li.commission_amount), 0);
-  const paidTotal = lines.filter((li) => li.payment_status === 'paid').reduce((s, li) => s + num(li.commission_amount), 0);
-  const invoicedTotal = lines.filter((li) => li.payment_status === 'invoiced').reduce((s, li) => s + num(li.commission_amount), 0);
-  const cancelledTotal = lines.filter((li) => li.payment_status === 'cancelled').reduce((s, li) => s + num(li.commission_amount), 0);
-  const arrivalPassed = !!(event.arrival_date && event.arrival_date < today);
-  const departPassed = !!(event.depart_date && event.depart_date < today);
-  const alerts: string[] = [];
+  // Show only after the trip's depart date has passed.
+  if (!event.depart_date || event.depart_date >= today) return null;
 
-  // ---------- Closed states ----------
-  if (event.booking_status === 'cancelled') {
-    return { title: 'Cancelled', amount: null, subtext: 'This event was cancelled.', tone: 'red', alerts };
-  }
-  if (event.booking_status === 'lost') {
-    return { title: 'Lost', amount: null, subtext: "Deal didn't close.", tone: 'gray', alerts };
-  }
-  if (event.booking_status === 'on_hold') {
-    return { title: 'On Hold', amount: total > 0 ? fmtMoney(total) : null, subtext: 'Awaiting client.', tone: 'orange', alerts };
+  const active = event.line_items.filter((li) => li.payment_status !== 'cancelled');
+  if (active.length === 0) {
+    return { tone: 'red', title: 'No active commission lines', subtext: 'Trip is over but no commission line is active.', amount: null };
   }
 
-  // ---------- Pre-definite ----------
-  if (event.booking_status === 'prospect' || event.booking_status === 'tentative') {
-    const weight = event.booking_status === 'tentative' ? 0.5 : 0.2;
-    const weighted = total * weight;
+  const total = active.reduce((s, li) => s + num(li.commission_amount), 0);
+  const paid = active.filter((li) => li.payment_status === 'paid').reduce((s, li) => s + num(li.commission_amount), 0);
+  const invoiced = active.filter((li) => li.payment_status === 'invoiced');
+  const invoicedTotal = invoiced.reduce((s, li) => s + num(li.commission_amount), 0);
+  const uninvoiced = active.filter((li) => li.payment_status === 'pending_booking' || li.payment_status === 'upcoming');
+
+  const allPaid = active.every((li) => li.payment_status === 'paid');
+  if (allPaid) {
+    return { tone: 'green', title: 'Paid in full', subtext: 'All commission received.', amount: fmtMoney(paid) };
+  }
+  if (uninvoiced.length > 0) {
     return {
-      title: BOOKING_STATUS_LABEL[event.booking_status],
+      tone: 'red',
+      title: 'Needs invoice',
+      subtext: `${uninvoiced.length} of ${active.length} ${uninvoiced.length === 1 ? 'line is' : 'lines are'} not yet invoiced.`,
       amount: fmtMoney(total),
-      subtext: total > 0 ? `Estimated · weighted ${fmtMoney(weighted)} (${Math.round(weight * 100)}%)` : 'No commission lines yet',
-      tone: event.booking_status === 'tentative' ? 'yellow' : 'gray',
-      alerts,
     };
   }
+  // All invoiced or partially paid — check for stale invoices (>30 days unpaid)
+  const stale = invoiced.filter((li) => li.invoice_sent_date && daysBetween(li.invoice_sent_date) >= 30);
+  if (stale.length > 0) {
+    const oldest = Math.max(...stale.map((li) => daysBetween(li.invoice_sent_date!)));
+    return {
+      tone: 'red',
+      title: `Invoice ${oldest} days unpaid`,
+      subtext: `${stale.length} ${stale.length === 1 ? 'invoice has' : 'invoices have'} aged past 30 days.`,
+      amount: fmtMoney(invoicedTotal),
+    };
+  }
+  if (paid > 0) {
+    const remaining = total - paid;
+    return {
+      tone: 'yellow',
+      title: 'Partially paid',
+      subtext: `${fmtMoney(remaining)} still outstanding.`,
+      amount: fmtMoney(paid),
+    };
+  }
+  return {
+    tone: 'yellow',
+    title: 'Awaiting payment',
+    subtext: 'All lines invoiced, awaiting client payment.',
+    amount: fmtMoney(invoicedTotal),
+  };
+}
 
-  // ---------- Definite (rich logic) ----------
-  const activeLines = lines.filter((li) => li.payment_status !== 'cancelled');
+// ---------- Warnings ----------
 
-  // Stale-invoice alerts
-  for (const li of lines) {
-    if (li.payment_status === 'invoiced' && li.invoice_sent_date) {
-      const days = Math.floor((Date.now() - new Date(li.invoice_sent_date).getTime()) / (1000 * 60 * 60 * 24));
-      if (days >= 30) {
-        alerts.push(`${li.line_type.toUpperCase()} invoice sent ${days} days ago — still unpaid.`);
+function deriveWarnings(event: CommissionEventWithLineItems): string[] {
+  const warnings: string[] = [];
+
+  // 1. Line item dates outside event date range
+  if (event.arrival_date && event.depart_date) {
+    for (const li of event.line_items) {
+      if (li.payment_status === 'cancelled') continue;
+      if (li.arrival_date && li.arrival_date < event.arrival_date) {
+        warnings.push(
+          `${li.line_type.toUpperCase()} line "${li.company_name}" arrives ${fmtDate(li.arrival_date, { month: 'short', day: 'numeric' })}, before the event arrival ${fmtDate(event.arrival_date, { month: 'short', day: 'numeric' })}.`,
+        );
+      }
+      if (li.depart_date && li.depart_date > event.depart_date) {
+        warnings.push(
+          `${li.line_type.toUpperCase()} line "${li.company_name}" departs ${fmtDate(li.depart_date, { month: 'short', day: 'numeric' })}, after the event departure ${fmtDate(event.depart_date, { month: 'short', day: 'numeric' })}.`,
+        );
       }
     }
   }
 
-  if (activeLines.length === 0 && cancelledTotal > 0) {
-    return { title: 'All lines cancelled', amount: null, subtext: 'Definite, but every line item is cancelled.', tone: 'red', alerts };
+  // 2. Line item types missing from event "considering"
+  const considered = new Set(event.considerations);
+  const lineTypes = new Set(event.line_items.filter((li) => li.payment_status !== 'cancelled').map((li) => li.line_type));
+  for (const lt of lineTypes) {
+    if (!considered.has(lt as ConsiderationType)) {
+      warnings.push(`Has a ${lt.toUpperCase()} commission line, but the event isn't marked as "considering ${lt.toUpperCase()}".`);
+    }
   }
 
-  if (activeLines.length === 0) {
-    return { title: 'Definite — no commission lines', amount: null, subtext: 'Set up at least one commission line.', tone: 'orange', alerts };
+  // 3. Considering hotel but no candidate hotels (only relevant past prospect stage)
+  if (
+    considered.has('hotel') &&
+    event.hotels_considered.length === 0 &&
+    event.booking_status !== 'prospect' &&
+    event.booking_status !== 'cancelled' &&
+    event.booking_status !== 'lost'
+  ) {
+    warnings.push('Considering hotel, but no candidate hotels listed yet.');
   }
 
-  const allActivePaid = activeLines.every((li) => li.payment_status === 'paid');
-  if (allActivePaid && paidTotal > 0) {
-    return {
-      title: 'Paid in full',
-      amount: fmtMoney(paidTotal),
-      subtext: 'Trip complete · all commission received.',
-      tone: 'green',
-      alerts,
-    };
+  // 4. Definite + considers hotel but none selected
+  if (
+    event.booking_status === 'definite' &&
+    considered.has('hotel') &&
+    event.hotels_considered.length > 0 &&
+    !event.hotels_considered.some((h) => h.is_selected)
+  ) {
+    warnings.push('Definite booking, but no candidate hotel is marked as selected.');
   }
 
-  if (paidTotal > 0) {
-    const remaining = total - paidTotal - cancelledTotal;
-    return {
-      title: 'Partially paid',
-      amount: fmtMoney(paidTotal),
-      subtext: `${fmtMoney(remaining)} still to come`,
-      tone: 'blue',
-      alerts,
-    };
+  // 5. Multiple selected hotels (DB invariant — should be at most one)
+  const selectedCount = event.hotels_considered.filter((h) => h.is_selected).length;
+  if (selectedCount > 1) {
+    warnings.push(`${selectedCount} hotels are marked as selected — only one should be.`);
   }
 
-  if (invoicedTotal > 0) {
-    return {
-      title: 'Invoiced — awaiting payment',
-      amount: fmtMoney(invoicedTotal),
-      subtext: departPassed ? 'Trip done · awaiting client payment' : 'Invoice sent',
-      tone: 'blue',
-      alerts,
-    };
+  // 6. Paid status without paid_date
+  for (const li of event.line_items) {
+    if (li.payment_status === 'paid' && !li.paid_date) {
+      warnings.push(`${li.line_type.toUpperCase()} line "${li.company_name}" is marked Paid but has no paid date.`);
+    }
+    if (li.payment_status === 'invoiced' && !li.invoice_sent_date) {
+      warnings.push(`${li.line_type.toUpperCase()} line "${li.company_name}" is marked Invoiced but has no invoice-sent date.`);
+    }
   }
 
-  if (departPassed) {
-    return {
-      title: 'Trip done — invoice needed',
-      amount: fmtMoney(total),
-      subtext: 'Set payment status / send invoice',
-      tone: 'orange',
-      alerts: [`Departed ${fmtDate(event.depart_date)} — no commission has been invoiced yet.`, ...alerts],
-    };
-  }
-
-  if (arrivalPassed) {
-    return {
-      title: 'Trip in progress',
-      amount: fmtMoney(total),
-      subtext: 'Arrived · awaiting completion',
-      tone: 'indigo',
-      alerts,
-    };
-  }
-
-  // Future / booked, all upcoming or pending_booking
-  return {
-    title: 'Booked',
-    amount: fmtMoney(total),
-    subtext: event.arrival_date ? `Trip starts ${fmtDate(event.arrival_date)}` : 'Trip date TBD',
-    tone: 'indigo',
-    alerts,
-  };
+  return warnings;
 }
 
 // ---------- Component ----------
@@ -199,10 +262,23 @@ const CommissionView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [event, setEvent] = useState<CommissionEventWithLineItems | null>(null);
+  const [rfps, setRfps] = useState<RFP[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lineItemNotes, setLineItemNotes] = useState<Record<string, CommissionNote[]>>({});
-  const [openLineNotes, setOpenLineNotes] = useState<Record<string, boolean>>({});
+  const [expandedLines, setExpandedLines] = useState<Set<string>>(new Set());
+  const [editingLineItemId, setEditingLineItemId] = useState<string | null>(null);
+  const [addingLineType, setAddingLineType] = useState<LineType | null>(null);
+  const [editingBox, setEditingBox] = useState<'contact' | 'rfp' | null>(null);
+
+  // Pre-fetch all line-item notes so the count chip on the Notes toggle is
+  // accurate before the user expands anything.
+  const loadAllLineItemNotes = async (lis: { id: string }[]): Promise<Record<string, CommissionNote[]>> => {
+    const entries = await Promise.all(
+      lis.map(async (li) => [li.id, await commissionApi.listLineItemNotes(li.id)] as const),
+    );
+    return Object.fromEntries(entries);
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -210,8 +286,17 @@ const CommissionView: React.FC = () => {
     (async () => {
       try {
         setLoading(true);
-        const ev = await commissionApi.getEvent(id);
-        if (!cancelled) setEvent(ev);
+        const [ev, rfpsForEvent] = await Promise.all([
+          commissionApi.getEvent(id),
+          rfpApi.listRFPsForEvent(id).catch(() => [] as RFP[]),
+        ]);
+        if (cancelled) return;
+        setEvent(ev);
+        setRfps(rfpsForEvent);
+        if (ev.line_items.length > 0) {
+          const notesMap = await loadAllLineItemNotes(ev.line_items);
+          if (!cancelled) setLineItemNotes(notesMap);
+        }
       } catch (err: any) {
         if (!cancelled) setError(err.response?.data?.detail || 'Failed to load event');
       } finally {
@@ -220,6 +305,17 @@ const CommissionView: React.FC = () => {
     })();
     return () => { cancelled = true; };
   }, [id]);
+
+  const reloadEvent = async () => {
+    if (!id) return;
+    const ev = await commissionApi.getEvent(id);
+    setEvent(ev);
+    if (ev.line_items.length > 0) {
+      setLineItemNotes(await loadAllLineItemNotes(ev.line_items));
+    } else {
+      setLineItemNotes({});
+    }
+  };
 
   const reloadEventNotes = async () => {
     if (!id) return;
@@ -232,145 +328,247 @@ const CommissionView: React.FC = () => {
     setLineItemNotes((prev) => ({ ...prev, [lineItemId]: notes }));
   };
 
-  const hero = useMemo(() => (event ? deriveHero(event) : null), [event]);
+  const paymentSummary = useMemo(() => (event ? derivePaymentSummary(event) : null), [event]);
+  const warnings = useMemo(() => (event ? deriveWarnings(event) : []), [event]);
+  // Hotel lines first; then DMC, Air, Other.
+  const sortedLineItems = useMemo(() => {
+    if (!event) return [];
+    const order: Record<LineType, number> = { hotel: 0, dmc: 1, air: 2, other: 3 };
+    return [...event.line_items].sort((a, b) => order[a.line_type] - order[b.line_type]);
+  }, [event]);
+
+  const toggleExpanded = (id: string) => {
+    setExpandedLines((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const breadcrumbYear = useMemo(() => {
+    if (!event?.arrival_date) return null;
+    return new Date(event.arrival_date).getUTCFullYear();
+  }, [event]);
 
   if (loading) return <div className="p-8 text-center text-gray-500">Loading…</div>;
   if (error || !event) return <div className="p-8 text-center text-red-600">{error || 'Not found'}</div>;
 
   const considersHotel = event.considerations.includes('hotel');
-  const selectedHotel = event.hotels_considered.find((h) => h.is_selected);
-  const otherHotels = event.hotels_considered.filter((h) => !h.is_selected);
+  const tone = STATUS_TONE[event.booking_status];
 
   return (
     <div>
-      {/* Top bar */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 flex items-center gap-3">
-        <button onClick={() => navigate('/commissions')} className="text-sm text-gray-500 hover:text-gray-700">← Back</button>
-        <h1 className="text-2xl font-bold text-gray-900 truncate flex-1">{event.meeting_name}</h1>
-        <button
-          onClick={() => navigate(`/commissions/${event.id}/edit`)}
-          className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
-        >
-          Edit Event
-        </button>
-      </div>
-
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {/* Hero */}
-        {hero && <HeroBlock hero={hero} bookingStatus={event.booking_status} />}
-
-        {/* Event facts */}
-        <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-baseline justify-between mb-4">
-            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Event Details</h2>
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-8 space-y-6">
+        {/* Breadcrumb + full-edit shortcut */}
+        <div className="flex items-center justify-between gap-3 -mb-2">
+          <nav className="flex items-center gap-1.5 text-sm text-gray-500 min-w-0">
             <button
-              onClick={() => navigate(`/commissions/${event.id}/edit`)}
-              className="text-xs text-blue-600 hover:underline"
-            >Edit</button>
-          </div>
-          <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 text-sm">
-            <Row label="Booking Status">
-              <span className="inline-flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full" style={{ background: BOOKING_STATUS_COLORS[event.booking_status] }} />
-                <span className="font-medium text-gray-900">{BOOKING_STATUS_LABEL[event.booking_status]}</span>
-              </span>
-            </Row>
-            <Row label="Company">{event.client_company_name || <em className="text-gray-400">—</em>}</Row>
-            <Row label="Primary Contact">
-              {event.primary_contact_name ? (
-                <span>
-                  <span>{event.primary_contact_name}</span>
-                  {event.primary_contact_email && <span className="ml-2 text-gray-500">{event.primary_contact_email}</span>}
-                </span>
-              ) : <em className="text-gray-400">—</em>}
-            </Row>
-            <Row label="Destinations">
-              {event.destinations?.length
-                ? <span>{event.destinations.join(' · ')}</span>
-                : event.destination
-                  ? <span>{event.destination}</span>
-                  : <em className="text-gray-400">—</em>}
-            </Row>
-            <Row label="Trip Dates">
-              {event.arrival_date || event.depart_date ? (
-                <span>
-                  {fmtDate(event.arrival_date)} – {fmtDate(event.depart_date)}
-                  {event.dates_flexible && <span className="ml-2 text-xs text-gray-500">(flexible)</span>}
-                </span>
-              ) : <em className="text-gray-400">—</em>}
-            </Row>
-            <Row label="Considering">
-              {event.considerations.length ? (
-                <div className="flex gap-1.5 flex-wrap">
-                  {event.considerations.map((c) => (
-                    <span key={c} className="px-2 py-0.5 text-xs rounded text-white font-semibold uppercase tracking-wider"
-                      style={{ background: LINE_TYPE_COLOR[c] }}>{c}</span>
-                  ))}
-                </div>
-              ) : <em className="text-gray-400">—</em>}
-            </Row>
-            {considersHotel && (
+              onClick={() => navigate('/commissions/list')}
+              className="hover:text-gray-900 hover:underline"
+            >
+              Events
+            </button>
+            {breadcrumbYear && (
               <>
-                <Row label="Peak Rooms">{event.peak_rooms ?? <em className="text-gray-400">—</em>}</Row>
-                <Row label="Total Room Nights">{event.total_room_nights ?? <em className="text-gray-400">—</em>}</Row>
+                <span className="text-gray-300">/</span>
+                <button
+                  onClick={() => navigate(`/commissions/list?year=${breadcrumbYear}`)}
+                  className="hover:text-gray-900 hover:underline"
+                >
+                  {breadcrumbYear}
+                </button>
               </>
             )}
-          </dl>
-        </section>
+            <span className="text-gray-300">/</span>
+            <span className="text-gray-700 font-medium truncate">{event.meeting_name}</span>
+          </nav>
+          <button
+            type="button"
+            onClick={() => navigate(`/commissions/${event.id}/edit`)}
+            className="shrink-0 text-xs px-3 py-1.5 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+          >
+            Edit full event
+          </button>
+        </div>
 
-        {/* Hotels considered (if applicable) */}
-        {considersHotel && event.hotels_considered.length > 0 && (
-          <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">Hotels Considered</h2>
-            <ul className="divide-y divide-gray-100">
-              {selectedHotel && (
-                <HotelRow key={selectedHotel.id} hotel={selectedHotel} />
-              )}
-              {otherHotels.map((h) => (
-                <HotelRow key={h.id} hotel={h} />
-              ))}
-            </ul>
-          </section>
+        {/* Hero — color-coded by booking status. Edit always opens the full edit page. */}
+        <HeroCard
+          event={event}
+          tone={tone}
+          onEdit={() => navigate(`/commissions/${event.id}/edit`)}
+        />
+
+        {/* Payment status (definite + trip done) */}
+        {paymentSummary && <PaymentStatusCard summary={paymentSummary} />}
+
+        {/* Warnings */}
+        {warnings.length > 0 && <WarningsCard warnings={warnings} />}
+
+        {/* Company & Primary Contact */}
+        {editingBox === 'contact' ? (
+          <ContactEditForm
+            event={event}
+            onSave={async (patch) => {
+              await commissionApi.updateEvent(event.id, patch);
+              await reloadEvent();
+              setEditingBox(null);
+            }}
+            onCancel={() => setEditingBox(null)}
+          />
+        ) : (
+          <ContactCard
+            event={event}
+            onEdit={() => setEditingBox('contact')}
+          />
+        )}
+
+        {/* RFP / Logistics — hotels considered, peak rooms, total room nights, RFPs */}
+        {considersHotel && (
+          editingBox === 'rfp' ? (
+            <RFPInfoEditForm
+              event={event}
+              onSaveMetrics={async (patch) => {
+                await commissionApi.updateEvent(event.id, patch);
+                await reloadEvent();
+                setEditingBox(null);
+              }}
+              onCancel={() => setEditingBox(null)}
+              onAddHotel={async (name) => {
+                await commissionApi.addHotel(event.id, { name, is_selected: false });
+                await reloadEvent();
+              }}
+              onSelectHotel={async (hotelId) => {
+                await commissionApi.updateHotel(hotelId, { is_selected: true });
+                await reloadEvent();
+              }}
+              onRenameHotel={async (hotelId, name) => {
+                await commissionApi.updateHotel(hotelId, { name });
+                await reloadEvent();
+              }}
+              onRemoveHotel={async (hotelId) => {
+                await commissionApi.deleteHotel(hotelId);
+                await reloadEvent();
+              }}
+            />
+          ) : (
+            <RFPInfoCard
+              event={event}
+              rfps={rfps}
+              onEditEvent={() => setEditingBox('rfp')}
+              onNewRfp={() => navigate(`/commissions/${event.id}/rfps/new`)}
+              onOpenRfp={(rfpId, view) => navigate(`/rfps/${rfpId}/${view}`)}
+            />
+          )
         )}
 
         {/* Commission Line Items */}
         <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">
-            Commission Lines ({event.line_items.length})
-          </h2>
-          {event.line_items.length === 0 ? (
-            <p className="text-sm text-gray-500 italic">No commission lines yet.</p>
-          ) : (
-            <div className="space-y-3">
-              {event.line_items.map((li) => (
-                <LineItemRow
-                  key={li.id}
-                  li={li}
-                  bookingStatus={event.booking_status}
-                  notesOpen={!!openLineNotes[li.id]}
-                  onToggleNotes={async () => {
-                    const next = !openLineNotes[li.id];
-                    setOpenLineNotes((prev) => ({ ...prev, [li.id]: next }));
-                    if (next && !(li.id in lineItemNotes)) {
-                      await reloadLineNotes(li.id);
-                    }
-                  }}
-                  notes={lineItemNotes[li.id] || []}
-                  onAddNote={async (body) => {
-                    await commissionApi.addLineItemNote(li.id, body);
-                    await reloadLineNotes(li.id);
-                  }}
-                  onEditNote={async (noteId, body) => {
-                    await commissionApi.updateNote(noteId, body);
-                    await reloadLineNotes(li.id);
-                  }}
-                  onDeleteNote={async (noteId) => {
-                    await commissionApi.deleteNote(noteId);
-                    await reloadLineNotes(li.id);
-                  }}
-                  onEdit={() => navigate(`/commissions/${event.id}/edit?line=${li.id}`)}
-                />
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+              Commission Lines ({event.line_items.length})
+            </h2>
+            <div className="flex gap-1.5">
+              {(['hotel', 'dmc', 'air', 'other'] as LineType[]).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setAddingLineType(t)}
+                  disabled={addingLineType !== null}
+                  className="px-2.5 py-1 text-xs uppercase tracking-wider bg-white border rounded hover:bg-gray-50 font-medium disabled:opacity-40"
+                  style={{ borderColor: LINE_TYPE_COLOR[t], color: LINE_TYPE_COLOR[t] }}
+                >
+                  + {t}
+                </button>
               ))}
+            </div>
+          </div>
+
+          {/* Inline new-line form */}
+          {addingLineType && (
+            <div className="mb-3">
+              <LineItemEditForm
+                initial={{
+                  line_type: addingLineType,
+                  arrival_date: event.arrival_date,
+                  depart_date: event.depart_date,
+                }}
+                showPaymentFields={event.booking_status === 'definite'}
+                isNew
+                eventCompanyName={event.client_company_name}
+                onSave={async (payload) => {
+                  await commissionApi.addLineItem(event.id, payload);
+                  await reloadEvent();
+                  setAddingLineType(null);
+                }}
+                onCancel={() => setAddingLineType(null)}
+              />
+            </div>
+          )}
+
+          {event.line_items.length === 0 && !addingLineType ? (
+            <p className="text-sm text-gray-500 italic">No commission lines yet.</p>
+          ) : event.line_items.length === 0 ? null : (
+            <div className="space-y-3">
+              {sortedLineItems.map((li) =>
+                editingLineItemId === li.id ? (
+                  <LineItemEditForm
+                    key={li.id}
+                    initial={li}
+                    showPaymentFields={event.booking_status === 'definite'}
+                    eventCompanyName={event.client_company_name}
+                    onSave={async (payload) => {
+                      await commissionApi.updateLineItem(li.id, payload);
+                      await reloadEvent();
+                      setEditingLineItemId(null);
+                    }}
+                    onCancel={() => setEditingLineItemId(null)}
+                    onDelete={async () => {
+                      await commissionApi.deleteLineItem(li.id);
+                      await reloadEvent();
+                      setEditingLineItemId(null);
+                    }}
+                    noteFeed={{
+                      notes: lineItemNotes[li.id] || [],
+                      onAddNote: async (body) => {
+                        await commissionApi.addLineItemNote(li.id, body);
+                        await reloadLineNotes(li.id);
+                      },
+                      onEditNote: async (noteId, body) => {
+                        await commissionApi.updateNote(noteId, body);
+                        await reloadLineNotes(li.id);
+                      },
+                      onDeleteNote: async (noteId) => {
+                        await commissionApi.deleteNote(noteId);
+                        await reloadLineNotes(li.id);
+                      },
+                    }}
+                  />
+                ) : (
+                  <LineItemRow
+                    key={li.id}
+                    li={li}
+                    bookingStatus={event.booking_status}
+                    eventArrivalDate={event.arrival_date}
+                    eventDepartDate={event.depart_date}
+                    expanded={expandedLines.has(li.id)}
+                    onToggleExpanded={() => toggleExpanded(li.id)}
+                    notes={lineItemNotes[li.id] || []}
+                    onAddNote={async (body) => {
+                      await commissionApi.addLineItemNote(li.id, body);
+                      await reloadLineNotes(li.id);
+                    }}
+                    onEditNote={async (noteId, body) => {
+                      await commissionApi.updateNote(noteId, body);
+                      await reloadLineNotes(li.id);
+                    }}
+                    onDeleteNote={async (noteId) => {
+                      await commissionApi.deleteNote(noteId);
+                      await reloadLineNotes(li.id);
+                    }}
+                    onEdit={() => setEditingLineItemId(li.id)}
+                  />
+                ),
+              )}
             </div>
           )}
         </section>
@@ -405,41 +603,492 @@ const CommissionView: React.FC = () => {
   );
 };
 
-// ---------- Hero block ----------
+// ---------- Hero card ----------
 
-const TONE_STYLES: Record<Hero['tone'], { bg: string; text: string; ring: string }> = {
-  green: { bg: 'bg-emerald-50', text: 'text-emerald-900', ring: 'ring-emerald-200' },
-  blue: { bg: 'bg-blue-50', text: 'text-blue-900', ring: 'ring-blue-200' },
-  orange: { bg: 'bg-orange-50', text: 'text-orange-900', ring: 'ring-orange-200' },
-  red: { bg: 'bg-red-50', text: 'text-red-900', ring: 'ring-red-200' },
-  gray: { bg: 'bg-gray-100', text: 'text-gray-900', ring: 'ring-gray-300' },
-  indigo: { bg: 'bg-indigo-50', text: 'text-indigo-900', ring: 'ring-indigo-200' },
-  yellow: { bg: 'bg-yellow-50', text: 'text-yellow-900', ring: 'ring-yellow-200' },
+interface HeroCardProps {
+  event: CommissionEventWithLineItems;
+  tone: Tone;
+  onEdit: () => void;
+}
+
+const HeroCard: React.FC<HeroCardProps> = ({ event, tone, onEdit }) => {
+  const tBg = TONE_BG[tone];
+  const tText = TONE_TEXT[tone];
+  const tBadge = TONE_BADGE[tone];
+  const eventLocation =
+    event.destinations && event.destinations.length
+      ? event.destinations.join(' · ')
+      : event.destination || '';
+
+  return (
+    <section className={`rounded-xl ring-1 ${tBg} p-6 relative`}>
+      <button
+        onClick={onEdit}
+        className="absolute top-4 right-4 text-xs text-gray-700 hover:underline"
+      >
+        Edit
+      </button>
+
+      {/* Status badge */}
+      <span className={`inline-flex items-center px-2.5 py-1 text-xs font-semibold uppercase tracking-wider rounded ${tBadge}`}>
+        {BOOKING_STATUS_LABEL[event.booking_status]}
+      </span>
+
+      {/* Event name */}
+      <h1 className={`mt-3 text-3xl font-bold ${tText}`}>{event.meeting_name}</h1>
+
+      {/* Key facts grid */}
+      <dl className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3 text-sm">
+        <KeyFact label="Trip Dates" tone={tone}>
+          {event.arrival_date || event.depart_date ? (
+            <span>
+              {fmtDate(event.arrival_date)} – {fmtDate(event.depart_date)}
+              {event.dates_flexible && <span className="ml-1 text-xs opacity-70">(flexible)</span>}
+            </span>
+          ) : <em className="opacity-60">—</em>}
+        </KeyFact>
+        <KeyFact label="Destinations" tone={tone}>
+          {eventLocation || <em className="opacity-60">—</em>}
+        </KeyFact>
+        <KeyFact label="Considering" tone={tone}>
+          {event.considerations.length ? (
+            <div className="flex gap-1.5 flex-wrap">
+              {event.considerations.map((c) => (
+                <span
+                  key={c}
+                  className="px-2 py-0.5 text-[10px] rounded text-white font-semibold uppercase tracking-wider"
+                  style={{ background: LINE_TYPE_COLOR[c] }}
+                >
+                  {CONSIDERATION_LABEL[c]}
+                </span>
+              ))}
+            </div>
+          ) : <em className="opacity-60">—</em>}
+        </KeyFact>
+      </dl>
+    </section>
+  );
 };
 
-const HeroBlock: React.FC<{ hero: Hero; bookingStatus: BookingStatus }> = ({ hero, bookingStatus }) => {
-  const t = TONE_STYLES[hero.tone];
+const KeyFact: React.FC<{ label: string; tone: Tone; children: React.ReactNode }> = ({ label, tone, children }) => (
+  <div>
+    <dt className={`text-[11px] font-semibold uppercase tracking-wider opacity-70 mb-0.5 ${TONE_TEXT[tone]}`}>{label}</dt>
+    <dd className={`${TONE_TEXT[tone]}`}>{children}</dd>
+  </div>
+);
+
+// ---------- Payment status card ----------
+
+const PaymentStatusCard: React.FC<{ summary: PaymentSummary }> = ({ summary }) => {
+  const tBg = TONE_BG[summary.tone];
+  const tText = TONE_TEXT[summary.tone];
   return (
-    <section className={`rounded-xl ring-1 ${t.bg} ${t.ring} p-6`}>
-      <div className="flex items-baseline gap-3 flex-wrap">
-        <span className="text-xs uppercase tracking-wider font-semibold text-gray-500">Status</span>
-        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-700">
-          <span className="w-2 h-2 rounded-full" style={{ background: BOOKING_STATUS_COLORS[bookingStatus] }} />
-          {BOOKING_STATUS_LABEL[bookingStatus]}
-        </span>
+    <section className={`rounded-xl ring-1 ${tBg} p-6`}>
+      <div className={`text-xs font-semibold uppercase tracking-wider opacity-70 ${tText}`}>Payment Status</div>
+      <div className="mt-2 flex items-baseline gap-4 flex-wrap">
+        <h2 className={`text-2xl font-bold ${tText}`}>{summary.title}</h2>
+        {summary.amount && <span className={`text-2xl font-bold ${tText}`}>{summary.amount}</span>}
       </div>
-      <div className="mt-3 flex items-baseline gap-4 flex-wrap">
-        <h2 className={`text-3xl font-bold ${t.text}`}>{hero.title}</h2>
-        {hero.amount && <span className={`text-3xl font-bold ${t.text}`}>{hero.amount}</span>}
+      <p className={`mt-1.5 text-sm ${tText} opacity-80`}>{summary.subtext}</p>
+    </section>
+  );
+};
+
+// ---------- Warnings ----------
+
+const WarningsCard: React.FC<{ warnings: string[] }> = ({ warnings }) => (
+  <section className="rounded-lg ring-1 bg-amber-50 ring-amber-200 p-5">
+    <div className="flex items-baseline gap-2 mb-2">
+      <span className="text-xs font-semibold uppercase tracking-wider text-amber-900">⚠ Warnings</span>
+      <span className="text-[11px] text-amber-800 opacity-70">
+        {warnings.length} {warnings.length === 1 ? 'item' : 'items'}
+      </span>
+    </div>
+    <ul className="space-y-1 list-disc list-inside text-sm text-amber-900">
+      {warnings.map((w, i) => (
+        <li key={i}>{w}</li>
+      ))}
+    </ul>
+  </section>
+);
+
+// ---------- Company & Contact ----------
+
+const ContactCard: React.FC<{
+  event: CommissionEventWithLineItems;
+  onEdit: () => void;
+}> = ({ event, onEdit }) => (
+  <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+    <div className="flex items-baseline justify-between mb-4">
+      <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Company & Contact</h2>
+      <button onClick={onEdit} className="text-xs text-blue-600 hover:underline">Edit</button>
+    </div>
+    <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+      <Row label="Company">
+        {event.client_company_name ? (
+          <span className="inline-flex items-center gap-1.5">
+            {event.client_company_name}
+            <NimbleLink kind="contact" id={event.client_company_id} title="Open company in Nimble" />
+          </span>
+        ) : <em className="text-gray-400">—</em>}
+      </Row>
+      <Row label="Primary Contact">
+        {event.primary_contact_name ? (
+          <div>
+            <div className="inline-flex items-center gap-1.5">
+              {event.primary_contact_name}
+              <NimbleLink kind="contact" id={event.primary_contact_id} title="Open contact in Nimble" />
+            </div>
+            {event.primary_contact_email && (
+              <div className="text-xs text-gray-500">{event.primary_contact_email}</div>
+            )}
+          </div>
+        ) : <em className="text-gray-400">—</em>}
+      </Row>
+    </dl>
+  </section>
+);
+
+// ---------- RFP / Logistics ----------
+
+const RFPInfoCard: React.FC<{
+  event: CommissionEventWithLineItems;
+  rfps: RFP[];
+  onEditEvent: () => void;
+  onNewRfp: () => void;
+  onOpenRfp: (rfpId: string, view: 'edit' | 'invitations' | 'responses') => void;
+}> = ({ event, rfps, onEditEvent, onNewRfp, onOpenRfp }) => {
+  const selectedHotel = event.hotels_considered.find((h) => h.is_selected);
+  const otherHotels = event.hotels_considered.filter((h) => !h.is_selected);
+
+  return (
+    <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-5">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">RFP Info</h2>
+        <button onClick={onEditEvent} className="text-xs text-blue-600 hover:underline">Edit</button>
       </div>
-      <p className={`mt-2 text-sm ${t.text} opacity-80`}>{hero.subtext}</p>
-      {hero.alerts.length > 0 && (
-        <ul className="mt-3 space-y-1">
-          {hero.alerts.map((a, i) => (
-            <li key={i} className="text-xs text-orange-800 bg-orange-100 inline-block px-2 py-1 rounded mr-2">⚠ {a}</li>
-          ))}
-        </ul>
-      )}
+
+      {/* Room metrics */}
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+        <Row label="Peak Rooms">
+          {event.peak_rooms ?? <em className="text-gray-400">—</em>}
+        </Row>
+        <Row label="Total Room Nights">
+          {event.total_room_nights ?? <em className="text-gray-400">—</em>}
+        </Row>
+      </dl>
+
+      {/* Hotels Considered */}
+      <div>
+        <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-2">
+          Hotels Considered ({event.hotels_considered.length})
+        </div>
+        {event.hotels_considered.length === 0 ? (
+          <p className="text-sm text-gray-500 italic">No candidate hotels yet.</p>
+        ) : (
+          <ul className="divide-y divide-gray-100">
+            {selectedHotel && <HotelRow key={selectedHotel.id} hotel={selectedHotel} />}
+            {otherHotels.map((h) => <HotelRow key={h.id} hotel={h} />)}
+          </ul>
+        )}
+      </div>
+
+      {/* RFPs list */}
+      <div>
+        <div className="flex items-baseline justify-between mb-2">
+          <span className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">
+            RFPs ({rfps.length})
+          </span>
+          <button onClick={onNewRfp} className="text-xs text-blue-600 hover:underline">+ New RFP</button>
+        </div>
+        {rfps.length === 0 ? (
+          <p className="text-sm text-gray-500 italic">No RFPs yet for this event.</p>
+        ) : (
+          <ul className="divide-y divide-gray-100">
+            {rfps.map((r) => (
+              <li key={r.id} className="flex items-center justify-between py-2.5">
+                <div>
+                  <div className="text-sm font-medium text-gray-900">{r.rfp_type}</div>
+                  <div className="text-xs text-gray-500">
+                    Created {new Date(r.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+                <div className="flex gap-3 text-xs">
+                  <button onClick={() => onOpenRfp(r.id, 'edit')} className="text-indigo-600 hover:underline">Edit</button>
+                  <button onClick={() => onOpenRfp(r.id, 'invitations')} className="text-green-600 hover:underline">Invitations</button>
+                  <button onClick={() => onOpenRfp(r.id, 'responses')} className="text-blue-600 hover:underline">Responses</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+};
+
+// ---------- Inline edit forms (Hero / Company & Contact / RFP Info) ----------
+
+const CONSIDERATION_OPTIONS: { value: ConsiderationType; label: string }[] = [
+  { value: 'hotel', label: 'Hotel' },
+  { value: 'dmc', label: 'DMC' },
+  { value: 'air', label: 'Air' },
+  { value: 'other', label: 'Other' },
+];
+
+const BOOKING_STATUS_OPTIONS: { value: BookingStatus; label: string }[] = [
+  { value: 'prospect', label: 'Prospect' },
+  { value: 'tentative', label: 'Tentative' },
+  { value: 'definite', label: 'Definite' },
+  { value: 'on_hold', label: 'On Hold' },
+  { value: 'cancelled', label: 'Cancelled' },
+  { value: 'lost', label: 'Lost' },
+];
+
+// ----- Company & Contact (Nimble-backed) -----
+
+interface ContactEditFormProps {
+  event: CommissionEventWithLineItems;
+  onSave: (patch: CommissionEventUpdate) => Promise<void>;
+  onCancel: () => void;
+}
+
+const ContactEditForm: React.FC<ContactEditFormProps> = ({ event, onSave, onCancel }) => {
+  const [company, setCompany] = useState<NimbleSelection>({
+    id: event.client_company_id || null,
+    name: event.client_company_name || '',
+  });
+  const [contact, setContact] = useState<NimbleSelection>({
+    id: event.primary_contact_id || null,
+    name: event.primary_contact_name || '',
+    email: event.primary_contact_email || null,
+  });
+  const [allCompanies, setAllCompanies] = useState<NimbleCompanyLite[]>([]);
+  const [companiesLoading, setCompaniesLoading] = useState(true);
+  const [companyContacts, setCompanyContacts] = useState<NimblePersonLite[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await nimbleApi.listAllCompanies();
+        if (!cancelled) setAllCompanies(data);
+      } finally {
+        if (!cancelled) setCompaniesLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!company.id && !company.name) { setCompanyContacts([]); return; }
+    let cancelled = false;
+    (async () => {
+      setContactsLoading(true);
+      try {
+        const data = await nimbleApi.listContactsByCompany({
+          company_id: company.id, company: company.id ? null : company.name,
+        });
+        if (!cancelled) setCompanyContacts(data);
+      } catch {
+        if (!cancelled) setCompanyContacts([]);
+      } finally {
+        if (!cancelled) setContactsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [company.id, company.name]);
+
+  const companyItems: PickerItem[] = allCompanies.map((c) => ({
+    id: c.id, label: c.name, sublabel: [c.industry, c.url || c.domain].filter(Boolean).join(' · '),
+  }));
+  const contactItems: PickerItem[] = companyContacts.map((p) => ({
+    id: p.id, label: p.name, sublabel: [p.title, p.email].filter(Boolean).join(' · '), email: p.email,
+  }));
+
+  const handleSave = async () => {
+    setErr(null);
+    setSaving(true);
+    try {
+      const patch: CommissionEventUpdate = {
+        client_company_id: company.id,
+        client_company_name: company.name.trim() || null,
+        primary_contact_id: contact.id,
+        primary_contact_name: contact.name.trim() || null,
+        primary_contact_email: contact.email || null,
+      };
+      await onSave(patch);
+    } catch (e: any) {
+      setErr(e.response?.data?.detail || 'Failed to save');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="bg-white rounded-lg shadow-sm border-2 border-blue-300 p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Editing Company &amp; Contact</h2>
+      </div>
+
+      {err && <div className="text-sm bg-red-50 text-red-700 px-3 py-2 rounded">{err}</div>}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Field label="Company">
+          <NimbleTypeahead
+            items={companyItems}
+            loading={companiesLoading}
+            loadingHint="Loading companies from Nimble…"
+            emptyHint="No companies in Nimble."
+            value={company}
+            onChange={(v) => { setCompany(v); setContact({ id: null, name: '', email: null }); }}
+            placeholder={companiesLoading ? 'Loading companies…' : 'Search Nimble companies…'}
+          />
+        </Field>
+        <Field label="Primary Contact">
+          <NimbleTypeahead
+            items={contactItems}
+            loading={contactsLoading}
+            loadingHint="Loading contacts at this company…"
+            emptyHint={company.name ? 'No contacts at this company in Nimble — type a name to save.' : 'Pick a company first.'}
+            disabled={!company.name && !company.id}
+            value={contact}
+            onChange={setContact}
+            placeholder={company.name ? 'Search contacts at this company…' : 'Pick a company first'}
+          />
+        </Field>
+      </div>
+
+      <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          className="px-4 py-1.5 text-sm text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </section>
+  );
+};
+
+// ----- RFP Info edit (peak rooms / total RNs / hotels considered) -----
+
+interface RFPInfoEditFormProps {
+  event: CommissionEventWithLineItems;
+  onSaveMetrics: (patch: CommissionEventUpdate) => Promise<void>;
+  onCancel: () => void;
+  onAddHotel: (name: string) => Promise<void>;
+  onSelectHotel: (hotelId: string) => Promise<void>;
+  onRenameHotel: (hotelId: string, name: string) => Promise<void>;
+  onRemoveHotel: (hotelId: string) => Promise<void>;
+}
+
+const RFPInfoEditForm: React.FC<RFPInfoEditFormProps> = ({
+  event, onSaveMetrics, onCancel, onAddHotel, onSelectHotel, onRenameHotel, onRemoveHotel,
+}) => {
+  const [peakRooms, setPeakRooms] = useState<string>(
+    event.peak_rooms !== null && event.peak_rooms !== undefined ? String(event.peak_rooms) : '',
+  );
+  const [totalRNs, setTotalRNs] = useState<string>(
+    event.total_room_nights !== null && event.total_room_nights !== undefined ? String(event.total_room_nights) : '',
+  );
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const toInt = (s: string): number | null => {
+    const t = s.trim();
+    if (t === '') return null;
+    const n = parseInt(t, 10);
+    return Number.isNaN(n) ? null : n;
+  };
+
+  const handleSave = async () => {
+    setErr(null);
+    setSaving(true);
+    try {
+      const patch: CommissionEventUpdate = {
+        peak_rooms: toInt(peakRooms),
+        total_room_nights: toInt(totalRNs),
+      };
+      await onSaveMetrics(patch);
+    } catch (e: any) {
+      setErr(e.response?.data?.detail || 'Failed to save');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="bg-white rounded-lg shadow-sm border-2 border-blue-300 p-6 space-y-5">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Editing RFP Info</h2>
+        <span className="text-[11px] text-gray-500">Hotel changes save immediately. Peak / Total RNs save below.</span>
+      </div>
+
+      {err && <div className="text-sm bg-red-50 text-red-700 px-3 py-2 rounded">{err}</div>}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Field label="Peak Rooms">
+          <input
+            type="number"
+            value={peakRooms}
+            onChange={(e) => setPeakRooms(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+          />
+        </Field>
+        <Field label="Total Room Nights">
+          <input
+            type="number"
+            value={totalRNs}
+            onChange={(e) => setTotalRNs(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+          />
+        </Field>
+      </div>
+
+      <div>
+        <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-1">
+          Hotels Being Considered
+        </label>
+        <HotelsConsidered
+          hotels={event.hotels_considered}
+          enabled={true}
+          onAdd={onAddHotel}
+          onSelect={onSelectHotel}
+          onRename={onRenameHotel}
+          onRemove={onRemoveHotel}
+        />
+      </div>
+
+      <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          className="px-4 py-1.5 text-sm text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+        >
+          Done
+        </button>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save Metrics'}
+        </button>
+      </div>
     </section>
   );
 };
@@ -454,7 +1103,7 @@ const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, ch
 );
 
 const HotelRow: React.FC<{ hotel: HotelConsidered }> = ({ hotel }) => (
-  <li className={`flex items-center gap-3 py-2 ${hotel.is_selected ? '' : ''}`}>
+  <li className="flex items-center gap-3 py-2">
     <span
       className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
         hotel.is_selected ? 'bg-emerald-600' : 'border-2 border-gray-200'
@@ -491,8 +1140,10 @@ const PAYMENT_BADGE: Record<PaymentStatus, string> = {
 interface LineItemRowProps {
   li: CommissionLineItem;
   bookingStatus: BookingStatus;
-  notesOpen: boolean;
-  onToggleNotes: () => Promise<void>;
+  eventArrivalDate: string | null;
+  eventDepartDate: string | null;
+  expanded: boolean;
+  onToggleExpanded: () => void;
   notes: CommissionNote[];
   onAddNote: (body: string) => Promise<void>;
   onEditNote: (noteId: string, body: string) => Promise<void>;
@@ -501,39 +1152,79 @@ interface LineItemRowProps {
 }
 
 const LineItemRow: React.FC<LineItemRowProps> = ({
-  li, bookingStatus, notesOpen, onToggleNotes, notes,
+  li, bookingStatus, eventArrivalDate, eventDepartDate, expanded, onToggleExpanded, notes,
   onAddNote, onEditNote, onDeleteNote, onEdit,
 }) => {
   const accent = LINE_TYPE_COLOR[li.line_type];
   const showPayment = bookingStatus === 'definite';
 
+  // Show line dates only if the line has its own dates AND they differ from
+  // the event's trip dates. Inherited dates are stored as null.
+  const datesDiffer =
+    (li.arrival_date && li.arrival_date !== eventArrivalDate) ||
+    (li.depart_date && li.depart_date !== eventDepartDate);
+
   return (
     <div className="rounded-lg bg-white border border-gray-200 border-l-4" style={{ borderLeftColor: accent }}>
       <div className="p-4">
         <div className="flex items-start gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={onToggleExpanded}
+            className="shrink-0 mt-0.5 text-gray-400 hover:text-gray-700 transition-transform"
+            aria-label={expanded ? 'Collapse' : 'Expand'}
+            style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
           <span
             className="px-2.5 py-0.5 text-xs uppercase tracking-wider rounded-full font-semibold text-white shrink-0"
             style={{ background: accent }}
           >
             {li.line_type}
           </span>
-          <div className="flex-1 min-w-[200px]">
-            <p className="text-sm font-semibold text-gray-900">
-              {li.company_name || <em className="text-gray-400">(no vendor)</em>}
-            </p>
-            {li.resort_hotel && li.resort_hotel !== li.company_name && (
-              <p className="text-xs text-gray-500">{li.resort_hotel}</p>
+          <button
+            type="button"
+            onClick={onToggleExpanded}
+            className="flex-1 min-w-[200px] text-left"
+          >
+            {li.line_type === 'hotel' ? (
+              <p className="text-sm font-semibold text-gray-900">
+                {li.resort_hotel || <em className="text-gray-400">(no property)</em>}
+              </p>
+            ) : (
+              <>
+                <p className="text-sm font-semibold text-gray-900">
+                  {li.company_name || <em className="text-gray-400">(no vendor)</em>}
+                </p>
+                {li.resort_hotel && li.resort_hotel !== li.company_name && (
+                  <p className="text-xs text-gray-500">{li.resort_hotel}</p>
+                )}
+              </>
             )}
-          </div>
-          <div className="text-right">
+            {datesDiffer && (
+              <p className="text-[11px] text-gray-500 mt-0.5">
+                {fmtDate(li.arrival_date, { month: 'short', day: 'numeric', year: '2-digit' })} – {fmtDate(li.depart_date, { month: 'short', day: 'numeric', year: '2-digit' })}
+              </p>
+            )}
+          </button>
+          {notes.length > 0 && (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-[11px] font-medium shrink-0"
+              title={`${notes.length} ${notes.length === 1 ? 'note' : 'notes'}`}
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+              </svg>
+              {notes.length}
+            </span>
+          )}
+          <div className="text-right shrink-0">
             <p className="text-lg font-semibold tabular-nums text-gray-900">
               {fmtMoney(li.commission_amount)}
             </p>
-            {li.commission_pct && li.revenue && (
-              <p className="text-[11px] text-gray-500">
-                {Number(li.commission_pct)}% of {fmtMoney(li.revenue)}
-              </p>
-            )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {showPayment && (
@@ -545,34 +1236,44 @@ const LineItemRow: React.FC<LineItemRowProps> = ({
           </div>
         </div>
 
-        {/* Sub-line for dates / payment dates / points */}
-        <div className="mt-2 flex items-center gap-3 flex-wrap text-[11px] text-gray-500">
-          {(li.arrival_date || li.depart_date) && (
-            <span>
-              {fmtDate(li.arrival_date, { month: 'short', day: 'numeric', year: '2-digit' })} – {fmtDate(li.depart_date, { month: 'short', day: 'numeric', year: '2-digit' })}
-            </span>
-          )}
-          {showPayment && li.payment_status === 'invoiced' && li.invoice_sent_date && (
-            <span>Invoiced {fmtDate(li.invoice_sent_date, { month: 'short', day: 'numeric' })}</span>
-          )}
-          {showPayment && li.payment_status === 'paid' && li.paid_date && (
-            <span className="text-emerald-700">Paid {fmtDate(li.paid_date, { month: 'short', day: 'numeric' })}</span>
-          )}
-          {li.my_points && <span>Points: {li.my_points}</span>}
-          {li.cash_forward && <span>Cash forward: {fmtMoney(li.cash_forward)}</span>}
-        </div>
+        {expanded && (
+          <>
+            {/* Commission read-only sub-box */}
+            <div className="mt-3 rounded-lg bg-gray-50 ring-1 ring-gray-200 p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-600 mb-1.5">Commission</div>
+              <div className="grid grid-cols-3 gap-3 text-sm">
+                <ReadKV label="Revenue" value={li.revenue ? fmtMoney(li.revenue) : null} />
+                <ReadKV
+                  label="Commission %"
+                  value={li.commission_pct ? `${Number(li.commission_pct)}%` : null}
+                />
+                <ReadKV label="Commission $" value={li.commission_amount ? fmtMoney(li.commission_amount) : null} />
+              </div>
+            </div>
 
-        {/* Notes toggle */}
-        <div className="mt-3 pt-3 border-t border-gray-100">
-          <button
-            type="button"
-            onClick={onToggleNotes}
-            className="text-xs text-blue-700 hover:underline"
-          >
-            {notesOpen ? '▾ Hide notes' : `▸ Notes${notes.length ? ` (${notes.length})` : ''}`}
-          </button>
-          {notesOpen && (
-            <div className="mt-3">
+            {/* Payment read-only sub-box (definite only) */}
+            {showPayment && (
+              <div className="mt-2 rounded-lg bg-gray-50 ring-1 ring-gray-200 p-3">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-600 mb-1.5">Payment</div>
+                <div className="grid grid-cols-3 gap-3 text-sm">
+                  <ReadKV label="Status" value={PAYMENT_STATUS_LABEL[li.payment_status]} />
+                  <ReadKV
+                    label="Invoice Sent"
+                    value={li.invoice_sent_date ? fmtDate(li.invoice_sent_date, { month: 'short', day: 'numeric', year: '2-digit' }) : null}
+                  />
+                  <ReadKV
+                    label="Payment Received"
+                    value={li.paid_date ? fmtDate(li.paid_date, { month: 'short', day: 'numeric', year: '2-digit' }) : null}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Notes feed */}
+            <div className="mt-3 pt-3 border-t border-gray-100">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-600 mb-2">
+                Notes{notes.length ? ` (${notes.length})` : ''}
+              </div>
               <NoteFeed
                 notes={notes}
                 enabled={true}
@@ -583,11 +1284,382 @@ const LineItemRow: React.FC<LineItemRowProps> = ({
                 onDelete={onDeleteNote}
               />
             </div>
-          )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ---------- Inline line item edit form ----------
+
+const PAYMENT_STATUS_OPTIONS: { value: PaymentStatus; label: string }[] = [
+  { value: 'pending_booking', label: 'Pending Booking' },
+  { value: 'upcoming', label: 'Upcoming' },
+  { value: 'invoiced', label: 'Invoiced' },
+  { value: 'paid', label: 'Paid' },
+  { value: 'on_hold', label: 'On Hold' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
+
+const LINE_TYPE_OPTIONS: { value: LineType; label: string }[] = [
+  { value: 'hotel', label: 'Hotel' },
+  { value: 'dmc', label: 'DMC' },
+  { value: 'air', label: 'Air' },
+  { value: 'other', label: 'Other' },
+];
+
+const trimToNullStr = (s: string): string | null => {
+  const t = s.trim();
+  return t === '' ? null : t;
+};
+
+interface LineItemEditFormProps {
+  initial: Partial<CommissionLineItem> & { line_type: LineType };
+  showPaymentFields: boolean;
+  isNew?: boolean;
+  // For hotel lines: company_name is auto-set to this on save (the event's
+  // client company), since vendor/brand on hotel lines duplicates the event.
+  eventCompanyName?: string | null;
+  onSave: (payload: CommissionLineItemCreate) => Promise<void>;
+  onCancel: () => void;
+  onDelete?: () => Promise<void>;
+  // Notes feed (accumulating). Omitted when isNew (line item not yet persisted).
+  noteFeed?: {
+    notes: CommissionNote[];
+    onAddNote: (body: string) => Promise<void>;
+    onEditNote: (noteId: string, body: string) => Promise<void>;
+    onDeleteNote: (noteId: string) => Promise<void>;
+  };
+}
+
+const LineItemEditForm: React.FC<LineItemEditFormProps> = ({
+  initial, showPaymentFields, isNew, eventCompanyName, onSave, onCancel, onDelete, noteFeed,
+}) => {
+  const [lineType, setLineType] = useState<LineType>(initial.line_type);
+  const [companyName, setCompanyName] = useState(initial.company_name || '');
+  const [resortHotel, setResortHotel] = useState(initial.resort_hotel || '');
+  const [arrivalDate, setArrivalDate] = useState(initial.arrival_date || '');
+  const [departDate, setDepartDate] = useState(initial.depart_date || '');
+  const [revenue, setRevenue] = useState(initial.revenue || '');
+  const [commissionPct, setCommissionPct] = useState(initial.commission_pct || '');
+  const [commissionAmount, setCommissionAmount] = useState(initial.commission_amount || '');
+  const [amountManual, setAmountManual] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>(initial.payment_status || 'pending_booking');
+  const [invoiceSentDate, setInvoiceSentDate] = useState(initial.invoice_sent_date || '');
+  const [paidDate, setPaidDate] = useState(initial.paid_date || '');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Auto-recompute commission amount from revenue × pct unless user typed it manually.
+  useEffect(() => {
+    if (amountManual) return;
+    const r = Number(revenue || 0);
+    const p = Number(commissionPct || 0);
+    if (r && p) {
+      setCommissionAmount((r * p / 100).toFixed(2));
+    } else if (!revenue && !commissionPct) {
+      setCommissionAmount('');
+    }
+  }, [revenue, commissionPct, amountManual]);
+
+  const handleSave = async () => {
+    const isHotel = lineType === 'hotel';
+    // For hotels: vendor/brand is just the event's client company; the line's
+    // own identifier is the property/resort. For others: vendor is required.
+    const finalCompany = isHotel
+      ? (companyName.trim() || (eventCompanyName ?? '').trim() || resortHotel.trim() || 'Hotel')
+      : companyName.trim();
+    if (!finalCompany) {
+      setErr(isHotel ? 'Property name is required.' : 'Vendor / company name is required.');
+      return;
+    }
+    if (isHotel && !resortHotel.trim()) {
+      setErr('Property name is required.');
+      return;
+    }
+    setErr(null);
+    setSaving(true);
+    try {
+      const payload: CommissionLineItemCreate = {
+        line_type: lineType,
+        company_name: finalCompany,
+        resort_hotel: isHotel ? resortHotel.trim() : trimToNullStr(resortHotel),
+        arrival_date: trimToNullStr(arrivalDate),
+        depart_date: trimToNullStr(departDate),
+        revenue: trimToNullStr(revenue),
+        commission_pct: trimToNullStr(commissionPct),
+        commission_amount: trimToNullStr(commissionAmount),
+        payment_status: paymentStatus,
+        invoice_sent_date: trimToNullStr(invoiceSentDate),
+        paid_date: trimToNullStr(paidDate),
+      };
+      await onSave(payload);
+    } catch (e: any) {
+      setErr(e.response?.data?.detail || 'Failed to save line item');
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!onDelete) return;
+    if (!window.confirm('Delete this commission line? This cannot be undone.')) return;
+    setSaving(true);
+    try {
+      await onDelete();
+    } catch (e: any) {
+      setErr(e.response?.data?.detail || 'Failed to delete line item');
+      setSaving(false);
+    }
+  };
+
+  const accent = LINE_TYPE_COLOR[lineType];
+  const isHotel = lineType === 'hotel';
+
+  return (
+    <div className="rounded-lg bg-white border-2 border-blue-300 shadow-md border-l-4" style={{ borderLeftColor: accent }}>
+      <div className="p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-900">
+            {isNew ? `New ${lineType} line` : 'Editing commission line'}
+          </h3>
+          <span className="text-[11px] text-gray-500">Changes apply on Save</span>
+        </div>
+
+        {err && <div className="text-sm bg-red-50 text-red-700 px-3 py-2 rounded">{err}</div>}
+
+        {/* Row 1: type + identifier(s) */}
+        {isHotel ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <Field label="Type">
+              <select
+                value={lineType}
+                onChange={(e) => setLineType(e.target.value as LineType)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              >
+                {LINE_TYPE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </Field>
+            <div className="md:col-span-2">
+              <Field label="Hotel / Property">
+                <input
+                  type="text"
+                  value={resortHotel}
+                  onChange={(e) => setResortHotel(e.target.value)}
+                  placeholder="e.g., Secrets Cap Cana"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+              </Field>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <Field label="Type">
+              <select
+                value={lineType}
+                onChange={(e) => setLineType(e.target.value as LineType)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              >
+                {LINE_TYPE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Vendor">
+              <input
+                type="text"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              />
+            </Field>
+            <Field label="Property / Destination">
+              <input
+                type="text"
+                value={resortHotel}
+                onChange={(e) => setResortHotel(e.target.value)}
+                placeholder="e.g., Secrets Playa Blanca"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              />
+            </Field>
+          </div>
+        )}
+
+        {/* Row 2: dates */}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Arrival">
+            <input
+              type="date"
+              value={arrivalDate}
+              onChange={(e) => setArrivalDate(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+            />
+          </Field>
+          <Field label="Departure">
+            <input
+              type="date"
+              value={departDate}
+              onChange={(e) => setDepartDate(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+            />
+          </Field>
+        </div>
+
+        {/* Commission box — horizontal fields inside the grouping bubble */}
+        <FieldGroup title="Commission">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <Field label="Revenue ($)">
+              <CurrencyInput
+                value={revenue}
+                onChange={setRevenue}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+              />
+            </Field>
+            <Field label="Commission %">
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={commissionPct}
+                onChange={(e) => setCommissionPct(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+              />
+            </Field>
+            <Field label="Commission $">
+              <CurrencyInput
+                value={commissionAmount}
+                onChange={(v) => { setCommissionAmount(v); setAmountManual(true); }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+              />
+              {!amountManual && revenue && commissionPct && (
+                <p className="text-[10px] text-gray-500 mt-0.5">Auto-calculated from revenue × %</p>
+              )}
+            </Field>
+          </div>
+        </FieldGroup>
+
+        {/* Payment box — horizontal fields, definite only */}
+        {showPaymentFields && (
+          <FieldGroup title="Payment">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <Field label="Status">
+                <select
+                  value={paymentStatus}
+                  onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+                >
+                  {PAYMENT_STATUS_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </Field>
+              {(paymentStatus === 'invoiced' || paymentStatus === 'paid') && (
+                <Field label="Invoice Sent">
+                  <input
+                    type="date"
+                    value={invoiceSentDate}
+                    onChange={(e) => setInvoiceSentDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+                  />
+                </Field>
+              )}
+              {paymentStatus === 'paid' && (
+                <Field label="Payment Received">
+                  <input
+                    type="date"
+                    value={paidDate}
+                    onChange={(e) => setPaidDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+                  />
+                </Field>
+              )}
+            </div>
+          </FieldGroup>
+        )}
+
+        {/* Notes — accumulating feed (each Add appends a new timestamped entry) */}
+        <div>
+          <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-1">
+            Notes
+          </label>
+          {isNew ? (
+            <p className="text-xs text-gray-500 italic">
+              Save the line first, then come back to add notes.
+            </p>
+          ) : noteFeed ? (
+            <NoteFeed
+              notes={noteFeed.notes}
+              enabled={true}
+              placeholder={`Note for this ${lineType} line…`}
+              emptyHint="No notes on this line item yet."
+              onAdd={noteFeed.onAddNote}
+              onEdit={noteFeed.onEditNote}
+              onDelete={noteFeed.onDeleteNote}
+            />
+          ) : null}
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+          {onDelete && !isNew ? (
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={saving}
+              className="px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 rounded-md disabled:opacity-50"
+            >
+              Delete
+            </button>
+          ) : <span />}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={saving}
+              className="px-4 py-1.5 text-sm text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : isNew ? 'Add Line' : 'Save'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 };
+
+const FieldGroup: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+  <div className="rounded-lg bg-gray-50 ring-1 ring-gray-200 p-4">
+    <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-600 mb-3">{title}</div>
+    {children}
+  </div>
+);
+
+const ReadKV: React.FC<{ label: string; value: React.ReactNode | null }> = ({ label, value }) => (
+  <div>
+    <div className="text-[10px] uppercase tracking-wider text-gray-500">{label}</div>
+    <div className="text-sm text-gray-900 tabular-nums">
+      {value ?? <span className="text-gray-300">—</span>}
+    </div>
+  </div>
+);
+
+const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div>
+    <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-1">
+      {label}
+    </label>
+    {children}
+  </div>
+);
 
 export default CommissionView;

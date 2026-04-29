@@ -5,6 +5,7 @@ import { nimbleApi, type NimbleCompanyLite, type NimblePersonLite } from '../ser
 import NimbleTypeahead, { type NimbleSelection, type PickerItem } from '../components/NimbleTypeahead';
 import NoteFeed from '../components/NoteFeed';
 import HotelsConsidered from '../components/HotelsConsidered';
+import CurrencyInput from '../components/CurrencyInput';
 import type {
   BookingStatus,
   CommissionLineItem,
@@ -44,6 +45,27 @@ const LINE_TYPE_COLOR: Record<LineType, string> = {
   other: '#475569',  // slate-600
 };
 
+// Hero card color-coding by booking status (matches CommissionView).
+type Tone = 'green' | 'yellow' | 'red' | 'orange' | 'gray' | 'darkgray';
+
+const STATUS_TONE: Record<BookingStatus, Tone> = {
+  prospect: 'gray',
+  tentative: 'yellow',
+  definite: 'green',
+  on_hold: 'orange',
+  cancelled: 'red',
+  lost: 'darkgray',
+};
+
+const TONE_BG: Record<Tone, string> = {
+  green: 'bg-emerald-50 ring-emerald-200',
+  yellow: 'bg-yellow-50 ring-yellow-200',
+  red: 'bg-red-50 ring-red-200',
+  orange: 'bg-orange-50 ring-orange-200',
+  gray: 'bg-gray-50 ring-gray-200',
+  darkgray: 'bg-gray-100 ring-gray-300',
+};
+
 const PAYMENT_STATUS_OPTIONS: { value: PaymentStatus; label: string }[] = [
   { value: 'pending_booking', label: 'Pending Booking' },
   { value: 'upcoming', label: 'Upcoming' },
@@ -69,29 +91,22 @@ const blankLineItem = (lineType: LineType = 'hotel'): DraftLineItem => ({
   resort_hotel: null,
   arrival_date: null,
   depart_date: null,
-  peak_rooms: null,
-  total_room_nights: null,
   revenue: null,
   commission_pct: null,
   commission_amount: null,
   payment_status: 'pending_booking',
   invoice_sent_date: null,
   paid_date: null,
-  my_points: null,
-  cash_forward: null,
-  notes: null,
 });
 
 const lineItemHasData = (li: DraftLineItem): boolean => {
   if (li._persisted) return true;
   return Boolean(
     (li.company_name && li.company_name.trim()) ||
+    (li.resort_hotel && li.resort_hotel.trim()) ||
     li.revenue || li.commission_pct || li.commission_amount ||
     (li.payment_status && li.payment_status !== 'pending_booking') ||
-    li.invoice_sent_date || li.paid_date ||
-    (li.notes && li.notes.trim()) ||
-    (li.my_points && li.my_points.trim()) ||
-    li.cash_forward
+    li.invoice_sent_date || li.paid_date
   );
 };
 
@@ -150,6 +165,16 @@ const CommissionForm: React.FC = () => {
   const [loading, setLoading] = useState(editing);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Suppress soft warnings on a fresh blank form until the user has tried to
+  // save at least once. (For existing events they always show — anything
+  // missing is a real gap to fix.)
+  const [attemptedSave, setAttemptedSave] = useState(false);
+
+  // Track the booking status as it was last saved on the server, so we can
+  // detect meaningful transitions on save and trigger an interstitial.
+  const priorBookingStatusRef = useRef<BookingStatus | null>(null);
+  const [interstitial, setInterstitial] =
+    useState<{ variant: InterstitialVariant; targetEventId: string } | null>(null);
 
   // ---------- Load event ----------
 
@@ -160,6 +185,7 @@ const CommissionForm: React.FC = () => {
         const ev = await commissionApi.getEvent(id);
         setMeetingName(ev.meeting_name);
         setBookingStatus(ev.booking_status);
+        priorBookingStatusRef.current = ev.booking_status;
         setDestinations(ev.destinations?.length ? ev.destinations : (ev.destination ? [ev.destination] : []));
         setArrivalDate(ev.arrival_date || '');
         setDepartDate(ev.depart_date || '');
@@ -462,6 +488,7 @@ const CommissionForm: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setAttemptedSave(true);
     const v = hardValidate();
     if (v) { setError(v); return; }
     setSaving(true);
@@ -486,27 +513,31 @@ const CommissionForm: React.FC = () => {
       };
 
       const liPayloads: CommissionLineItemCreate[] = lineItems.map((li) => {
+        const isHotel = li.line_type === 'hotel';
+        // For hotel lines: the line's identifier is the property; vendor/brand
+        // duplicates the event's client company, so derive it.
+        const finalCompany = isHotel
+          ? (company.name.trim() || (li.company_name ?? '').trim() || (li.resort_hotel ?? '').trim() || 'Hotel')
+          : (li.company_name ?? '');
         const out: CommissionLineItemCreate = {
           line_type: li.line_type,
-          company_name: li.company_name,
-          resort_hotel: li.line_type === 'hotel' ? (li.resort_hotel || li.company_name) : li.resort_hotel,
+          company_name: finalCompany,
+          resort_hotel: isHotel ? (li.resort_hotel || li.company_name) : li.resort_hotel,
           arrival_date: li._arrivalOverride ? li.arrival_date : (arrivalDate || null),
           depart_date: li._departOverride ? li.depart_date : (departDate || null),
-          peak_rooms: li.peak_rooms,
-          total_room_nights: li.total_room_nights,
           revenue: li.revenue,
           commission_pct: li.commission_pct,
           commission_amount: li.commission_amount ?? computeCommission(li.revenue, li.commission_pct),
           payment_status: bookingStatus === 'definite' ? li.payment_status : 'upcoming',
           invoice_sent_date: bookingStatus === 'definite' ? li.invoice_sent_date : null,
           paid_date: bookingStatus === 'definite' ? li.paid_date : null,
-          my_points: li.my_points,
-          cash_forward: li.cash_forward,
-          notes: li.notes,
         };
         return out;
       });
 
+      const transition = classifyTransition(priorBookingStatusRef.current, bookingStatus);
+
+      let targetId: string | null = null;
       if (!editing) {
         const created = await commissionApi.createEvent({ ...eventBody, line_items: liPayloads });
         // Flush any pending hotels (created order) — preserve which one was selected
@@ -522,7 +553,7 @@ const CommissionForm: React.FC = () => {
         for (const n of pendingNotes) {
           await commissionApi.addEventNote(created.id, n.body);
         }
-        navigate(`/commissions/${created.id}/edit`);
+        targetId = created.id;
       } else if (id) {
         await commissionApi.updateEvent(id, eventBody);
         for (const [i, li] of lineItems.entries()) {
@@ -530,9 +561,19 @@ const CommissionForm: React.FC = () => {
           if (li._persisted && li._id) await commissionApi.updateLineItem(li._id, payload);
           else await commissionApi.addLineItem(id, payload);
         }
-        // Reload to pick up freshly-created line item ids
-        const ev = await commissionApi.getEvent(id);
-        setLineItems(ev.line_items.map((row) => liToDraft(row, ev.arrival_date, ev.depart_date)));
+        targetId = id;
+      }
+
+      // Update the prior-status ref so back-to-back saves don't celebrate twice.
+      priorBookingStatusRef.current = bookingStatus;
+
+      if (!targetId) return;
+
+      if (transition) {
+        // Show the interstitial; navigation happens when the user dismisses it.
+        setInterstitial({ variant: transition, targetEventId: targetId });
+      } else {
+        navigate(`/commissions/${targetId}`);
       }
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Save failed');
@@ -552,17 +593,53 @@ const CommissionForm: React.FC = () => {
 
   // ---------- Render ----------
 
+  const breadcrumbYear = arrivalDate ? new Date(arrivalDate).getUTCFullYear() : null;
+  const heroTone = STATUS_TONE[bookingStatus];
+
   return (
     <div>
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 flex items-center gap-3">
-        <button onClick={() => navigate('/commissions')} className="text-sm text-gray-500 hover:text-gray-700">← Back</button>
-        <h1 className="text-2xl font-bold text-gray-900">{editing ? 'Edit Event' : 'New Event'}</h1>
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+        {editing ? (
+          <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+            <button
+              type="button"
+              onClick={() => navigate('/commissions/list')}
+              className="hover:text-gray-900 hover:underline"
+            >
+              Events
+            </button>
+            {breadcrumbYear && (
+              <>
+                <span className="text-gray-300">/</span>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/commissions/list?year=${breadcrumbYear}`)}
+                  className="hover:text-gray-900 hover:underline"
+                >
+                  {breadcrumbYear}
+                </button>
+              </>
+            )}
+            <span className="text-gray-300">/</span>
+            <button
+              type="button"
+              onClick={() => id && navigate(`/commissions/${id}`)}
+              className="hover:text-gray-900 hover:underline truncate"
+            >
+              {meetingName || 'Event'}
+            </button>
+            <span className="text-gray-300">/</span>
+            <span className="text-gray-700 font-medium">Edit</span>
+          </nav>
+        ) : (
+          <h1 className="text-2xl font-bold text-gray-900">New Event</h1>
+        )}
       </div>
 
       <form onSubmit={handleSubmit}>
         <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
           {error && <div className="p-4 bg-red-100 text-red-700 rounded-md text-sm">{error}</div>}
-          {warnings.length > 0 && (
+          {(editing || attemptedSave) && warnings.length > 0 && (
             <div className="rounded-md border border-amber-300 bg-amber-50 p-4">
               <div className="flex items-start gap-3">
                 <svg className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -578,17 +655,113 @@ const CommissionForm: React.FC = () => {
               </div>
             </div>
           )}
-          {/* ===== Event Details ===== */}
-          <section className="bg-white rounded-lg shadow p-6 space-y-5">
-            <h2 className="text-lg font-semibold text-gray-900">Event Details</h2>
+          {/* ===== Hero card — event basics, color-coded by booking status ===== */}
+          <section className={`rounded-xl ring-1 ${TONE_BG[heroTone]} p-6 space-y-5`}>
+            <div>
+              <Label>Booking Status</Label>
+              <BookingStatusSelect value={bookingStatus} onChange={setBookingStatus} />
+            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field label="Meeting Name *">
-                <input type="text" required value={meetingName} onChange={(e) => setMeetingName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                  placeholder="e.g., The Org Chart 2025" />
+            <Field label="Meeting Name *">
+              <input
+                type="text"
+                required
+                value={meetingName}
+                onChange={(e) => setMeetingName(e.target.value)}
+                className="w-full px-3 py-2 text-2xl font-bold text-gray-900 bg-white border border-gray-300 rounded-md"
+                placeholder="e.g., The Org Chart 2025"
+              />
+            </Field>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Field label="Trip Dates">
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    value={arrivalDate}
+                    onChange={(e) => setArrivalDate(e.target.value)}
+                    className="flex-1 px-2 py-2 border border-gray-300 rounded-md text-sm bg-white"
+                  />
+                  <input
+                    type="date"
+                    value={departDate}
+                    onChange={(e) => setDepartDate(e.target.value)}
+                    className="flex-1 px-2 py-2 border border-gray-300 rounded-md text-sm bg-white"
+                  />
+                </div>
+                <label className="mt-2 inline-flex items-center gap-1.5 text-xs text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={datesFlexible}
+                    onChange={(e) => setDatesFlexible(e.target.checked)}
+                    className="rounded border-gray-300"
+                  />
+                  Flexible
+                </label>
               </Field>
 
+              <Field label="Destinations">
+                <div className="border border-gray-300 rounded-md px-2 py-1.5 flex flex-wrap gap-1.5 items-center min-h-[38px] bg-white">
+                  {destinations.map((d) => (
+                    <span key={d} className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-700 text-xs rounded">
+                      {d}
+                      <button
+                        type="button"
+                        onClick={() => setDestinations((p) => p.filter((x) => x !== d))}
+                        className="text-gray-400 hover:text-red-600 leading-none text-sm"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    type="text"
+                    value={destinationDraft}
+                    onChange={(e) => setDestinationDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); commitDestination(); }
+                      else if (e.key === 'Backspace' && !destinationDraft && destinations.length) {
+                        setDestinations((p) => p.slice(0, -1));
+                      }
+                    }}
+                    onBlur={commitDestination}
+                    className="flex-1 min-w-[100px] px-1 py-0.5 text-sm outline-none bg-transparent"
+                    placeholder={destinations.length === 0 ? 'Type & Enter (e.g. Cancun, Mexico)' : 'Add another…'}
+                  />
+                </div>
+              </Field>
+
+              <Field label="Considering">
+                <div className="flex gap-1.5 flex-wrap">
+                  {CONSIDERATION_OPTIONS.map((opt) => {
+                    const on = considerations.has(opt.value);
+                    const color = LINE_TYPE_COLOR[opt.value];
+                    return (
+                      <button
+                        type="button"
+                        key={opt.value}
+                        onClick={() => toggleConsideration(opt.value)}
+                        className="px-2.5 py-1 text-xs rounded-md border font-medium transition-colors"
+                        style={on
+                          ? { background: color, borderColor: color, color: 'white' }
+                          : { background: 'white', borderColor: '#d1d5db', color: '#374151' }}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-1.5 text-[10px] text-gray-500">Toggling adds a matching commission line below.</p>
+              </Field>
+            </div>
+          </section>
+
+          {/* ===== Company & Primary Contact ===== */}
+          <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-4">
+              Company &amp; Contact
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field label="Company *">
                 <NimbleTypeahead
                   items={companyItems}
@@ -600,8 +773,7 @@ const CommissionForm: React.FC = () => {
                   placeholder={companiesLoading ? 'Loading companies…' : 'Search Nimble companies…'}
                 />
               </Field>
-
-              <Field label="Company Contact">
+              <Field label="Primary Contact">
                 <NimbleTypeahead
                   items={contactItems}
                   loading={contactsLoading}
@@ -613,117 +785,46 @@ const CommissionForm: React.FC = () => {
                   placeholder={company.name ? 'Search contacts at this company…' : 'Pick a company first'}
                 />
               </Field>
-
-              <Field label="Destination(s)">
-                <div className="border border-gray-300 rounded-md px-2 py-1.5 flex flex-wrap gap-1.5 items-center min-h-[38px]">
-                  {destinations.map((d) => (
-                    <span key={d} className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-700 text-xs rounded">
-                      {d}
-                      <button type="button" onClick={() => setDestinations((p) => p.filter((x) => x !== d))} className="text-gray-400 hover:text-red-600 leading-none text-sm">×</button>
-                    </span>
-                  ))}
-                  <input type="text" value={destinationDraft}
-                    onChange={(e) => setDestinationDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); commitDestination(); }
-                      else if (e.key === 'Backspace' && !destinationDraft && destinations.length) {
-                        setDestinations((p) => p.slice(0, -1));
-                      }
-                    }}
-                    onBlur={commitDestination}
-                    className="flex-1 min-w-[100px] px-1 py-0.5 text-sm outline-none"
-                    placeholder={destinations.length === 0 ? 'Type & Enter (e.g. Cancun, Mexico)' : 'Add another…'}
-                  />
-                </div>
-              </Field>
-
-              <Field label="Arrival Date">
-                <input type="date" value={arrivalDate} onChange={(e) => setArrivalDate(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
-              </Field>
-
-              <Field label="Departure Date">
-                <input type="date" value={departDate} onChange={(e) => setDepartDate(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
-              </Field>
-
-              <Field label="" wide>
-                <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-                  <input type="checkbox" checked={datesFlexible} onChange={(e) => setDatesFlexible(e.target.checked)}
-                    className="rounded border-gray-300" />
-                  Dates are flexible
-                </label>
-              </Field>
             </div>
-
-            {/* Booking Status */}
-            <div>
-              <Label>Booking Status</Label>
-              <BookingStatusSelect value={bookingStatus} onChange={setBookingStatus} />
-            </div>
-
-            {/* Event Notes */}
-            <Collapsible title="Event Notes" count={eventNotes.length} defaultOpen>
-              <NoteFeed
-                notes={eventNotes}
-                enabled={true}
-                placeholder="What just happened with this deal?"
-                emptyHint={id ? 'No notes yet — add the first.' : 'No notes yet — they\u2019ll save when you create the event.'}
-                onAdd={handleAddEventNote}
-                onEdit={handleEditEventNote}
-                onDelete={handleDeleteEventNote}
-              />
-            </Collapsible>
-
-            {/* Considerations */}
-            <div>
-              <Label>What is the client considering?</Label>
-              <div className="flex gap-2 flex-wrap">
-                {CONSIDERATION_OPTIONS.map((opt) => {
-                  const on = considerations.has(opt.value);
-                  const color = LINE_TYPE_COLOR[opt.value];
-                  return (
-                    <button type="button" key={opt.value}
-                      onClick={() => toggleConsideration(opt.value)}
-                      className="px-3 py-1.5 text-sm rounded-md border font-medium transition-colors"
-                      style={on
-                        ? { background: color, borderColor: color, color: 'white' }
-                        : { background: 'white', borderColor: '#d1d5db', color: '#374151' }}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="mt-1.5 text-xs text-gray-500">Selecting a category will add a commission line item below.</p>
-            </div>
-
-            {/* Hotel-only event-level fields */}
-            {considersHotel && (
-              <div className="rounded-lg border border-gray-200 bg-gray-50/60 p-4 space-y-4 border-l-4 border-l-emerald-500">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Field label="Peak Rooms">
-                    <input type="number" value={peakRooms ?? ''} onChange={(e) => setPeakRooms(intOrNull(e.target.value))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
-                  </Field>
-                  <Field label="Total Room Nights">
-                    <input type="number" value={totalRNs ?? ''} onChange={(e) => setTotalRNs(intOrNull(e.target.value))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
-                  </Field>
-                </div>
-
-                <div>
-                  <Label>Hotels Being Considered</Label>
-                  <HotelsConsidered
-                    hotels={hotelsConsidered}
-                    enabled={true}
-                    onAdd={handleAddHotel}
-                    onSelect={handleSelectHotel}
-                    onRename={handleRenameHotel}
-                    onRemove={handleRemoveHotel}
-                  />
-                </div>
-              </div>
-            )}
           </section>
+
+          {/* ===== RFP Info (only if hotel is being considered) ===== */}
+          {considersHotel && (
+            <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-5">
+              <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">RFP Info</h2>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Field label="Peak Rooms">
+                  <input
+                    type="number"
+                    value={peakRooms ?? ''}
+                    onChange={(e) => setPeakRooms(intOrNull(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  />
+                </Field>
+                <Field label="Total Room Nights">
+                  <input
+                    type="number"
+                    value={totalRNs ?? ''}
+                    onChange={(e) => setTotalRNs(intOrNull(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  />
+                </Field>
+              </div>
+
+              <div>
+                <Label>Hotels Being Considered</Label>
+                <HotelsConsidered
+                  hotels={hotelsConsidered}
+                  enabled={true}
+                  onAdd={handleAddHotel}
+                  onSelect={handleSelectHotel}
+                  onRename={handleRenameHotel}
+                  onRemove={handleRemoveHotel}
+                />
+              </div>
+            </section>
+          )}
 
           {/* ===== Line items ===== */}
           <section className="bg-white rounded-lg shadow p-6">
@@ -776,6 +877,20 @@ const CommissionForm: React.FC = () => {
             </div>
           </section>
 
+          {/* ===== Event Notes ===== */}
+          <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">Event Notes</h2>
+            <NoteFeed
+              notes={eventNotes}
+              enabled={true}
+              placeholder="What just happened with this deal?"
+              emptyHint={id ? 'No notes yet \u2014 add the first.' : 'No notes yet \u2014 they\u2019ll save when you create the event.'}
+              onAdd={handleAddEventNote}
+              onEdit={handleEditEventNote}
+              onDelete={handleDeleteEventNote}
+            />
+          </section>
+
         </main>
 
         {/* Full-width sticky save bar */}
@@ -789,6 +904,201 @@ const CommissionForm: React.FC = () => {
           </div>
         </div>
       </form>
+
+      {interstitial && (
+        <StatusInterstitial
+          variant={interstitial.variant}
+          onDismiss={() => {
+            const target = interstitial.targetEventId;
+            setInterstitial(null);
+            navigate(`/commissions/${target}`);
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+// ---------- Status-transition interstitial ----------
+
+type InterstitialVariant = 'celebrate' | 'progress' | 'encourage';
+
+// Decide which interstitial (if any) to show given a status transition.
+// Returns null if the change isn't worth a fanfare.
+function classifyTransition(
+  from: BookingStatus | null,
+  to: BookingStatus,
+): InterstitialVariant | null {
+  if (from === to) return null;
+  if (to === 'definite' && from !== 'definite') return 'celebrate';
+  if (to === 'tentative' && from === 'prospect') return 'progress';
+  if (to === 'cancelled' || to === 'lost') return 'encourage';
+  return null;
+}
+
+interface InterstitialConfig {
+  background: string;
+  hero: string;            // big centered emoji on the card
+  heroAnimation: string;   // tailwind animation class
+  title: string;
+  messages: string[];
+  confettiEmojis: string[];
+  buttonClass: string;
+  buttonText: string;
+  motion: 'rise' | 'drift'; // confetti motion style
+}
+
+const INTERSTITIAL_CONFIG: Record<InterstitialVariant, InterstitialConfig> = {
+  celebrate: {
+    background:
+      'linear-gradient(135deg, rgba(6,95,70,0.92) 0%, rgba(15,118,110,0.92) 50%, rgba(30,58,138,0.92) 100%)',
+    hero: '🎉',
+    heroAnimation: 'animate-bounce',
+    title: 'Definite!',
+    messages: [
+      "You're crushing it!",
+      "Definite > everything else. You did the thing.",
+      "That's how it's done.",
+      "Look at you, sealing deals like a pro.",
+      "Hard work, big win. Well played.",
+      "From prospect to definite — perfectly executed.",
+      "Boom! Another one in the books.",
+      "You make it look easy.",
+      "Champion's mindset, champion's results.",
+      "The kind of energy we love to see.",
+      "Money in motion!",
+      "Closed. Locked in. Cha-ching.",
+    ],
+    confettiEmojis: ['🎉', '🎊', '✨', '⭐', '🚀', '💫', '🎈', '🌟', '🥳', '🎯', '💰', '🏆'],
+    buttonClass: 'bg-emerald-600 hover:bg-emerald-700',
+    buttonText: 'Continue →',
+    motion: 'rise',
+  },
+  progress: {
+    background:
+      'linear-gradient(135deg, rgba(30,64,175,0.92) 0%, rgba(67,56,202,0.92) 50%, rgba(126,34,206,0.92) 100%)',
+    hero: '🚂',
+    heroAnimation: 'animate-bounce',
+    title: 'All aboard!',
+    messages: [
+      'Making great progress!',
+      'Picking up steam.',
+      'Tentative — one big step closer.',
+      'Look at you go. Keep the momentum.',
+      'The ball is rolling.',
+      'Building toward definite.',
+      'On the right track.',
+      "Don't stop now — keep going.",
+    ],
+    confettiEmojis: ['🚂', '💨', '✨', '📈', '⭐', '🛤️', '🌟', '🎯', '⚡'],
+    buttonClass: 'bg-indigo-600 hover:bg-indigo-700',
+    buttonText: 'Keep going →',
+    motion: 'rise',
+  },
+  encourage: {
+    background:
+      'linear-gradient(135deg, rgba(120,53,15,0.85) 0%, rgba(67,20,7,0.88) 50%, rgba(31,41,55,0.92) 100%)',
+    hero: '🐶',
+    heroAnimation: 'animate-pulse',
+    title: 'Heads up.',
+    messages: [
+      "Keep your head up — onto the next one.",
+      "You can't win 'em all. Tomorrow's a new day.",
+      "Every no gets you closer to a yes.",
+      "Shake it off — bigger fish ahead.",
+      "Sometimes the best deals are the ones you walk away from.",
+      "Good people lose deals. Great people learn from them.",
+      "This one wasn't yours. The next one might be.",
+      "Hey, this dog believes in you.",
+    ],
+    confettiEmojis: ['🐶', '🐾', '🌈', '☀️', '💪', '🌸', '🍀', '⭐'],
+    buttonClass: 'bg-amber-600 hover:bg-amber-700',
+    buttonText: 'Onward →',
+    motion: 'drift',
+  },
+};
+
+interface StatusInterstitialProps {
+  variant: InterstitialVariant;
+  onDismiss: () => void;
+}
+
+const StatusInterstitial: React.FC<StatusInterstitialProps> = ({ variant, onDismiss }) => {
+  const config = INTERSTITIAL_CONFIG[variant];
+  const message = useMemo(
+    () => config.messages[Math.floor(Math.random() * config.messages.length)],
+    [config.messages],
+  );
+
+  // Pre-generate confetti so positions/delays are stable across re-renders.
+  const confetti = useMemo(
+    () => Array.from({ length: variant === 'encourage' ? 35 : 60 }).map((_, i) => ({
+      emoji: config.confettiEmojis[i % config.confettiEmojis.length],
+      left: Math.random() * 100,
+      delay: Math.random() * 3,
+      duration: variant === 'encourage' ? 6 + Math.random() * 4 : 4 + Math.random() * 3,
+      size: variant === 'encourage' ? 18 + Math.random() * 18 : 22 + Math.random() * 22,
+    })),
+    [config.confettiEmojis, variant],
+  );
+
+  const animationName = config.motion === 'rise' ? 'confetti-rise' : 'confetti-drift';
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden"
+      style={{ background: config.background }}
+      role="dialog"
+      aria-modal="true"
+    >
+      <style>{`
+        @keyframes confetti-rise {
+          0%   { transform: translateY(110vh) rotate(0deg) scale(0.7); opacity: 0; }
+          15%  { opacity: 1; }
+          100% { transform: translateY(-20vh) rotate(720deg) scale(1.15); opacity: 0; }
+        }
+        @keyframes confetti-drift {
+          0%   { transform: translateY(-10vh) rotate(0deg) scale(0.8); opacity: 0; }
+          15%  { opacity: 0.85; }
+          100% { transform: translateY(110vh) rotate(180deg) scale(1); opacity: 0; }
+        }
+        @keyframes celebrate-pop {
+          0%   { transform: scale(0.5); opacity: 0; }
+          60%  { transform: scale(1.08); opacity: 1; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+      `}</style>
+
+      {confetti.map((c, i) => (
+        <span
+          key={i}
+          className="absolute pointer-events-none select-none"
+          style={{
+            left: `${c.left}%`,
+            top: 0,
+            fontSize: `${c.size}px`,
+            animation: `${animationName} ${c.duration}s ${c.delay}s linear infinite`,
+          }}
+        >
+          {c.emoji}
+        </span>
+      ))}
+
+      <div
+        className="relative bg-white rounded-3xl shadow-2xl px-12 py-10 max-w-lg mx-4 text-center"
+        style={{ animation: 'celebrate-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+      >
+        <div className={`text-7xl mb-4 ${config.heroAnimation}`}>{config.hero}</div>
+        <h1 className="text-4xl font-extrabold text-gray-900 mb-2">{config.title}</h1>
+        <p className="text-xl text-gray-700 mb-7 font-medium">{message}</p>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className={`px-8 py-3 text-white rounded-xl font-semibold text-lg shadow-md hover:shadow-lg transition-shadow ${config.buttonClass}`}
+        >
+          {config.buttonText}
+        </button>
+      </div>
     </div>
   );
 };
@@ -912,26 +1222,55 @@ const LineItemCard: React.FC<LineItemCardProps> = ({
       {collapsed ? null : (
       <div className="px-4 pb-4">
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Field label="Type">
-          <select value={li.line_type} onChange={(e) => onUpdate({ line_type: e.target.value as LineType })}
-            className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
-            <option value="hotel">Hotel</option>
-            <option value="dmc">DMC</option>
-            <option value="air">Air</option>
-            <option value="other">Other</option>
-          </select>
-        </Field>
+      {/* Row 1: type + identifier(s) */}
+      {li.line_type === 'hotel' ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Field label="Type">
+            <select value={li.line_type} onChange={(e) => onUpdate({ line_type: e.target.value as LineType })}
+              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
+              <option value="hotel">Hotel</option>
+              <option value="dmc">DMC</option>
+              <option value="air">Air</option>
+              <option value="other">Other</option>
+            </select>
+          </Field>
+          <div className="md:col-span-2">
+            <Field label="Hotel / Property">
+              <input type="text" value={li.resort_hotel || ''}
+                onChange={(e) => onUpdate({ resort_hotel: e.target.value })}
+                placeholder="e.g., Secrets Cap Cana"
+                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm" />
+              {hotelHint && <p className="mt-1 text-[11px] text-amber-700">{hotelHint}</p>}
+            </Field>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Field label="Type">
+            <select value={li.line_type} onChange={(e) => onUpdate({ line_type: e.target.value as LineType })}
+              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
+              <option value="hotel">Hotel</option>
+              <option value="dmc">DMC</option>
+              <option value="air">Air</option>
+              <option value="other">Other</option>
+            </select>
+          </Field>
+          <Field label="Vendor">
+            <input type="text" value={li.company_name || ''}
+              onChange={(e) => onUpdate({ company_name: e.target.value })}
+              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm" />
+          </Field>
+          <Field label="Property / Destination">
+            <input type="text" value={li.resort_hotel || ''}
+              onChange={(e) => onUpdate({ resort_hotel: e.target.value })}
+              placeholder="e.g., Secrets Playa Blanca"
+              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm" />
+          </Field>
+        </div>
+      )}
 
-        <Field label="Vendor / Resort" wide>
-          <input type="text" value={li.company_name || ''}
-            onChange={(e) => onUpdate({ company_name: e.target.value, resort_hotel: li.line_type === 'hotel' ? e.target.value : li.resort_hotel })}
-            placeholder={li.line_type === 'hotel' ? 'Hotel name' : 'Vendor'}
-            className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm" />
-          {hotelHint && <p className="mt-1 text-[11px] text-amber-700">{hotelHint}</p>}
-        </Field>
-
-        {/* Dates: inherit from event with optional override */}
+      {/* Row 2: dates */}
+      <div className="grid grid-cols-2 gap-3 mt-3">
         <Field label="Arrival">
           <DateInheritedInput
             override={!!li._arrivalOverride}
@@ -950,48 +1289,56 @@ const LineItemCard: React.FC<LineItemCardProps> = ({
             onToggleOverride={(o) => onUpdate({ _departOverride: o, depart_date: o ? li.depart_date : null })}
           />
         </Field>
-        <div /> {/* spacer to keep grid alignment */}
-
-        <Field label="Revenue $">
-          <input type="number" step="0.01" value={li.revenue || ''}
-            onChange={(e) => onUpdate({ revenue: numOrNull(e.target.value) })}
-            className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm" />
-        </Field>
-        <Field label="Commission %">
-          <input type="number" step="0.01" value={li.commission_pct || ''}
-            onChange={(e) => onUpdate({ commission_pct: numOrNull(e.target.value) })}
-            placeholder="10"
-            className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm" />
-        </Field>
-        <Field label="Commission $">
-          <div className="relative">
-            <input type="number" step="0.01" value={displayedAmount}
-              onChange={(e) => onUpdate({ commission_amount: numOrNull(e.target.value), _amountManual: true })}
-              className={`w-full px-2 py-1.5 pr-16 border rounded text-sm ${li._amountManual ? 'border-amber-400 bg-amber-50' : 'border-gray-300 bg-gray-50'}`}
-              placeholder={computed || ''}
-            />
-            {li._amountManual ? (
-              <button type="button"
-                onClick={() => onUpdate({ commission_amount: computed, _amountManual: false })}
-                className="absolute right-1 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[10px] uppercase tracking-wider bg-amber-100 text-amber-800 rounded hover:bg-amber-200"
-                title="Clear override and use revenue × %"
-              >Manual</button>
-            ) : computed && (
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] uppercase tracking-wider text-gray-400">auto</span>
-            )}
-          </div>
-        </Field>
       </div>
 
-      {/* Payment status — only when event is definite */}
+      {/* Commission box — horizontal fields inside a grouping bubble */}
+      <div className="mt-4 rounded-lg bg-gray-50 ring-1 ring-gray-200 p-4">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-600 mb-3">Commission</div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Field label="Revenue $">
+            <CurrencyInput
+              value={li.revenue || ''}
+              onChange={(v) => onUpdate({ revenue: v || null })}
+              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm bg-white"
+            />
+          </Field>
+          <Field label="Commission %">
+            <input type="number" step="0.01" value={li.commission_pct || ''}
+              onChange={(e) => onUpdate({ commission_pct: numOrNull(e.target.value) })}
+              placeholder="10"
+              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm bg-white" />
+          </Field>
+          <Field label="Commission $">
+            <div className="relative">
+              <CurrencyInput
+                value={displayedAmount || ''}
+                onChange={(v) => onUpdate({ commission_amount: v || null, _amountManual: true })}
+                placeholder={computed || ''}
+                className={`w-full px-2 py-1.5 pr-16 border rounded text-sm ${li._amountManual ? 'border-amber-400 bg-amber-50' : 'border-gray-300 bg-white'}`}
+              />
+              {li._amountManual ? (
+                <button type="button"
+                  onClick={() => onUpdate({ commission_amount: computed, _amountManual: false })}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[10px] uppercase tracking-wider bg-amber-100 text-amber-800 rounded hover:bg-amber-200"
+                  title="Clear override and use revenue × %"
+                >Manual</button>
+              ) : computed && (
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] uppercase tracking-wider text-gray-400">auto</span>
+              )}
+            </div>
+          </Field>
+        </div>
+      </div>
+
+      {/* Payment box — horizontal fields, definite only */}
       {definite ? (
-        <div className="mt-4 pt-3 border-t border-gray-200">
-          <Label>Payment</Label>
+        <div className="mt-4 rounded-lg bg-gray-50 ring-1 ring-gray-200 p-4">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-600 mb-3">Payment</div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <Field label="Status">
               <select value={li.payment_status}
                 onChange={(e) => onUpdate({ payment_status: e.target.value as PaymentStatus })}
-                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
+                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm bg-white">
                 {PAYMENT_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </Field>
@@ -999,14 +1346,14 @@ const LineItemCard: React.FC<LineItemCardProps> = ({
               <Field label="Invoice Sent">
                 <input type="date" value={li.invoice_sent_date || ''}
                   onChange={(e) => onUpdate({ invoice_sent_date: e.target.value || null })}
-                  className={`w-full px-2 py-1.5 border rounded text-sm ${!li.invoice_sent_date ? 'border-amber-400 bg-amber-50' : 'border-gray-300'}`} />
+                  className={`w-full px-2 py-1.5 border rounded text-sm bg-white ${!li.invoice_sent_date ? 'border-amber-400 !bg-amber-50' : 'border-gray-300'}`} />
               </Field>
             )}
             {li.payment_status === 'paid' && (
               <Field label="Payment Received">
                 <input type="date" value={li.paid_date || ''}
                   onChange={(e) => onUpdate({ paid_date: e.target.value || null })}
-                  className={`w-full px-2 py-1.5 border rounded text-sm ${!li.paid_date ? 'border-amber-400 bg-amber-50' : 'border-gray-300'}`} />
+                  className={`w-full px-2 py-1.5 border rounded text-sm bg-white ${!li.paid_date ? 'border-amber-400 !bg-amber-50' : 'border-gray-300'}`} />
               </Field>
             )}
           </div>
@@ -1014,20 +1361,6 @@ const LineItemCard: React.FC<LineItemCardProps> = ({
       ) : (
         <p className="mt-3 text-xs text-gray-400 italic">Payment status applies once booking is Definite.</p>
       )}
-
-      {/* My Points + Cash Forward */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 pt-3 border-t border-gray-200">
-        <Field label="My Points">
-          <input type="text" value={li.my_points || ''} onChange={(e) => onUpdate({ my_points: e.target.value || null })}
-            placeholder="50,000 Marriott"
-            className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm" />
-        </Field>
-        <Field label="Cash Forward $">
-          <input type="number" step="0.01" value={li.cash_forward || ''}
-            onChange={(e) => onUpdate({ cash_forward: numOrNull(e.target.value) })}
-            className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm" />
-        </Field>
-      </div>
 
       {/* Notes feed */}
       <div className="mt-4 pt-3 border-t border-gray-200">
@@ -1057,41 +1390,6 @@ const LineItemCard: React.FC<LineItemCardProps> = ({
       </div>
       </div>
       )}
-    </div>
-  );
-};
-
-// ---------- Collapsible (with right-side count badge) ----------
-
-const Collapsible: React.FC<{
-  title: React.ReactNode;
-  count?: number;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}> = ({ title, count, defaultOpen = true, children }) => {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between gap-2 py-1.5 text-left group"
-      >
-        <span className="flex items-center gap-2">
-          <svg
-            className={`w-4 h-4 text-gray-500 transition-transform ${open ? 'rotate-90' : ''}`}
-            fill="none" stroke="currentColor" viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-          <span className="text-xs font-semibold text-gray-700 uppercase tracking-wider">{title}</span>
-          {typeof count === 'number' && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-700">{count}</span>
-          )}
-        </span>
-        <span className="text-[11px] text-gray-400 group-hover:text-gray-600">{open ? 'Hide' : 'Show'}</span>
-      </button>
-      {open && <div className="mt-2">{children}</div>}
     </div>
   );
 };
@@ -1213,17 +1511,12 @@ function liToDraft(li: CommissionLineItem, eventArrival: string | null, eventDep
     resort_hotel: li.resort_hotel,
     arrival_date: arrivalOverride ? li.arrival_date : null,
     depart_date: departOverride ? li.depart_date : null,
-    peak_rooms: li.peak_rooms,
-    total_room_nights: li.total_room_nights,
     revenue: li.revenue,
     commission_pct: li.commission_pct,
     commission_amount: li.commission_amount,
     payment_status: li.payment_status,
     invoice_sent_date: li.invoice_sent_date,
     paid_date: li.paid_date,
-    my_points: li.my_points,
-    cash_forward: li.cash_forward,
-    notes: li.notes,
   };
 }
 
