@@ -282,6 +282,9 @@ const CommissionForm: React.FC = () => {
         name,
         is_selected: hotelsConsidered.length === 0, // first one auto-selects
         notes: null,
+        contact_name: null,
+        contact_email: null,
+        contact_phone: null,
         created_at: new Date().toISOString(),
       };
       setHotelsConsidered((prev) => [...prev, newHotel]);

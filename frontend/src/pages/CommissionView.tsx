@@ -827,23 +827,7 @@ const RFPInfoCard: React.FC<{
   );
 };
 
-// ---------- Inline edit forms (Hero / Company & Contact / RFP Info) ----------
-
-const CONSIDERATION_OPTIONS: { value: ConsiderationType; label: string }[] = [
-  { value: 'hotel', label: 'Hotel' },
-  { value: 'dmc', label: 'DMC' },
-  { value: 'air', label: 'Air' },
-  { value: 'other', label: 'Other' },
-];
-
-const BOOKING_STATUS_OPTIONS: { value: BookingStatus; label: string }[] = [
-  { value: 'prospect', label: 'Prospect' },
-  { value: 'tentative', label: 'Tentative' },
-  { value: 'definite', label: 'Definite' },
-  { value: 'on_hold', label: 'On Hold' },
-  { value: 'cancelled', label: 'Cancelled' },
-  { value: 'lost', label: 'Lost' },
-];
+// ---------- Inline edit forms (Company & Contact / RFP Info) ----------
 
 // ----- Company & Contact (Nimble-backed) -----
 
