@@ -5,7 +5,6 @@ import { nimbleApi, type NimbleCompanyLite, type NimblePersonLite } from '../ser
 import { rfpApi } from '../services/rfpApi';
 import NoteFeed from '../components/NoteFeed';
 import NimbleTypeahead, { type NimbleSelection, type PickerItem } from '../components/NimbleTypeahead';
-import HotelsConsidered from '../components/HotelsConsidered';
 import CurrencyInput from '../components/CurrencyInput';
 import NimbleLink from '../components/NimbleLink';
 import { parseLocalDate } from '../utils/date';
@@ -18,6 +17,8 @@ import type {
   CommissionNote,
   ConsiderationType,
   HotelConsidered,
+  HotelConsideredUpdate,
+  HotelStatus,
   LineType,
   PaymentStatus,
 } from '../types/commission';
@@ -266,6 +267,7 @@ const CommissionView: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lineItemNotes, setLineItemNotes] = useState<Record<string, CommissionNote[]>>({});
+  const [hotelNotes, setHotelNotes] = useState<Record<string, CommissionNote[]>>({});
   const [expandedLines, setExpandedLines] = useState<Set<string>>(new Set());
   const [editingLineItemId, setEditingLineItemId] = useState<string | null>(null);
   const [addingLineType, setAddingLineType] = useState<LineType | null>(null);
@@ -278,6 +280,18 @@ const CommissionView: React.FC = () => {
       lis.map(async (li) => [li.id, await commissionApi.listLineItemNotes(li.id)] as const),
     );
     return Object.fromEntries(entries);
+  };
+
+  const loadAllHotelNotes = async (hotels: { id: string }[]): Promise<Record<string, CommissionNote[]>> => {
+    const entries = await Promise.all(
+      hotels.map(async (h) => [h.id, await commissionApi.listHotelNotes(h.id)] as const),
+    );
+    return Object.fromEntries(entries);
+  };
+
+  const reloadHotelNotes = async (hotelId: string) => {
+    const notes = await commissionApi.listHotelNotes(hotelId);
+    setHotelNotes((prev) => ({ ...prev, [hotelId]: notes }));
   };
 
   useEffect(() => {
@@ -293,9 +307,13 @@ const CommissionView: React.FC = () => {
         if (cancelled) return;
         setEvent(ev);
         setRfps(rfpsForEvent);
-        if (ev.line_items.length > 0) {
-          const notesMap = await loadAllLineItemNotes(ev.line_items);
-          if (!cancelled) setLineItemNotes(notesMap);
+        const [liNotes, hNotes] = await Promise.all([
+          ev.line_items.length > 0 ? loadAllLineItemNotes(ev.line_items) : Promise.resolve({}),
+          ev.hotels_considered.length > 0 ? loadAllHotelNotes(ev.hotels_considered) : Promise.resolve({}),
+        ]);
+        if (!cancelled) {
+          setLineItemNotes(liNotes);
+          setHotelNotes(hNotes);
         }
       } catch (err: any) {
         if (!cancelled) setError(err.response?.data?.detail || 'Failed to load event');
@@ -310,11 +328,12 @@ const CommissionView: React.FC = () => {
     if (!id) return;
     const ev = await commissionApi.getEvent(id);
     setEvent(ev);
-    if (ev.line_items.length > 0) {
-      setLineItemNotes(await loadAllLineItemNotes(ev.line_items));
-    } else {
-      setLineItemNotes({});
-    }
+    const [liNotes, hNotes] = await Promise.all([
+      ev.line_items.length > 0 ? loadAllLineItemNotes(ev.line_items) : Promise.resolve({}),
+      ev.hotels_considered.length > 0 ? loadAllHotelNotes(ev.hotels_considered) : Promise.resolve({}),
+    ]);
+    setLineItemNotes(liNotes);
+    setHotelNotes(hNotes);
   };
 
   const reloadEventNotes = async () => {
@@ -427,6 +446,7 @@ const CommissionView: React.FC = () => {
           editingBox === 'rfp' ? (
             <RFPInfoEditForm
               event={event}
+              hotelNotes={hotelNotes}
               onSaveMetrics={async (patch) => {
                 await commissionApi.updateEvent(event.id, patch);
                 await reloadEvent();
@@ -434,20 +454,28 @@ const CommissionView: React.FC = () => {
               }}
               onCancel={() => setEditingBox(null)}
               onAddHotel={async (name) => {
-                await commissionApi.addHotel(event.id, { name, is_selected: false });
+                await commissionApi.addHotel(event.id, { name, status: 'considered' });
                 await reloadEvent();
               }}
-              onSelectHotel={async (hotelId) => {
-                await commissionApi.updateHotel(hotelId, { is_selected: true });
-                await reloadEvent();
-              }}
-              onRenameHotel={async (hotelId, name) => {
-                await commissionApi.updateHotel(hotelId, { name });
+              onUpdateHotel={async (hotelId, patch) => {
+                await commissionApi.updateHotel(hotelId, patch);
                 await reloadEvent();
               }}
               onRemoveHotel={async (hotelId) => {
                 await commissionApi.deleteHotel(hotelId);
                 await reloadEvent();
+              }}
+              onAddHotelNote={async (hotelId, body) => {
+                await commissionApi.addHotelNote(hotelId, body);
+                await reloadHotelNotes(hotelId);
+              }}
+              onEditHotelNote={async (hotelId, noteId, body) => {
+                await commissionApi.updateNote(noteId, body);
+                await reloadHotelNotes(hotelId);
+              }}
+              onDeleteHotelNote={async (hotelId, noteId) => {
+                await commissionApi.deleteNote(noteId);
+                await reloadHotelNotes(hotelId);
               }}
             />
           ) : (
@@ -758,13 +786,19 @@ const RFPInfoCard: React.FC<{
   onNewRfp: () => void;
   onOpenRfp: (rfpId: string, view: 'edit' | 'invitations' | 'responses') => void;
 }> = ({ event, rfps, onEditEvent, onNewRfp, onOpenRfp }) => {
-  const selectedHotel = event.hotels_considered.find((h) => h.is_selected);
-  const otherHotels = event.hotels_considered.filter((h) => !h.is_selected);
+  // Sort: winner → considered → no_longer_considered, then by created_at.
+  const sortedHotels = [...event.hotels_considered].sort((a, b) => {
+    const order = { winner: 0, considered: 1, no_longer_considered: 2 };
+    const ao = order[a.status] ?? 1;
+    const bo = order[b.status] ?? 1;
+    if (ao !== bo) return ao - bo;
+    return (a.created_at || '').localeCompare(b.created_at || '');
+  });
 
   return (
     <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 space-y-5">
       <div className="flex items-baseline justify-between">
-        <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">RFP Info</h2>
+        <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Hotels / RFPs</h2>
         <button onClick={onEditEvent} className="text-xs text-blue-600 hover:underline">Edit</button>
       </div>
 
@@ -781,14 +815,13 @@ const RFPInfoCard: React.FC<{
       {/* Hotels Considered */}
       <div>
         <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-2">
-          Hotels Considered ({event.hotels_considered.length})
+          Hotels ({event.hotels_considered.length})
         </div>
         {event.hotels_considered.length === 0 ? (
           <p className="text-sm text-gray-500 italic">No candidate hotels yet.</p>
         ) : (
           <ul className="divide-y divide-gray-100">
-            {selectedHotel && <HotelRow key={selectedHotel.id} hotel={selectedHotel} />}
-            {otherHotels.map((h) => <HotelRow key={h.id} hotel={h} />)}
+            {sortedHotels.map((h) => <HotelRow key={h.id} hotel={h} />)}
           </ul>
         )}
       </div>
@@ -967,20 +1000,25 @@ const ContactEditForm: React.FC<ContactEditFormProps> = ({ event, onSave, onCanc
   );
 };
 
-// ----- RFP Info edit (peak rooms / total RNs / hotels considered) -----
+// ----- Hotels / RFPs edit (peak rooms / total RNs / hotels considered) -----
 
 interface RFPInfoEditFormProps {
   event: CommissionEventWithLineItems;
+  hotelNotes: Record<string, CommissionNote[]>;
   onSaveMetrics: (patch: CommissionEventUpdate) => Promise<void>;
   onCancel: () => void;
   onAddHotel: (name: string) => Promise<void>;
-  onSelectHotel: (hotelId: string) => Promise<void>;
-  onRenameHotel: (hotelId: string, name: string) => Promise<void>;
+  onUpdateHotel: (hotelId: string, patch: HotelConsideredUpdate) => Promise<void>;
   onRemoveHotel: (hotelId: string) => Promise<void>;
+  onAddHotelNote: (hotelId: string, body: string) => Promise<void>;
+  onEditHotelNote: (hotelId: string, noteId: string, body: string) => Promise<void>;
+  onDeleteHotelNote: (hotelId: string, noteId: string) => Promise<void>;
 }
 
 const RFPInfoEditForm: React.FC<RFPInfoEditFormProps> = ({
-  event, onSaveMetrics, onCancel, onAddHotel, onSelectHotel, onRenameHotel, onRemoveHotel,
+  event, hotelNotes, onSaveMetrics, onCancel,
+  onAddHotel, onUpdateHotel, onRemoveHotel,
+  onAddHotelNote, onEditHotelNote, onDeleteHotelNote,
 }) => {
   const [peakRooms, setPeakRooms] = useState<string>(
     event.peak_rooms !== null && event.peak_rooms !== undefined ? String(event.peak_rooms) : '',
@@ -988,6 +1026,8 @@ const RFPInfoEditForm: React.FC<RFPInfoEditFormProps> = ({
   const [totalRNs, setTotalRNs] = useState<string>(
     event.total_room_nights !== null && event.total_room_nights !== undefined ? String(event.total_room_nights) : '',
   );
+  const [newHotelName, setNewHotelName] = useState('');
+  const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -1013,10 +1053,31 @@ const RFPInfoEditForm: React.FC<RFPInfoEditFormProps> = ({
     }
   };
 
+  const handleAddHotel = async () => {
+    const name = newHotelName.trim();
+    if (!name || adding) return;
+    setAdding(true);
+    try {
+      await onAddHotel(name);
+      setNewHotelName('');
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  // Sort: winner → considered → no_longer_considered, then by created_at.
+  const sortedHotels = [...event.hotels_considered].sort((a, b) => {
+    const order = { winner: 0, considered: 1, no_longer_considered: 2 };
+    const ao = order[a.status] ?? 1;
+    const bo = order[b.status] ?? 1;
+    if (ao !== bo) return ao - bo;
+    return (a.created_at || '').localeCompare(b.created_at || '');
+  });
+
   return (
     <section className="bg-white rounded-lg shadow-sm border-2 border-blue-300 p-6 space-y-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Editing RFP Info</h2>
+        <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Editing Hotels / RFPs</h2>
         <span className="text-[11px] text-gray-500">Hotel changes save immediately. Peak / Total RNs save below.</span>
       </div>
 
@@ -1042,17 +1103,47 @@ const RFPInfoEditForm: React.FC<RFPInfoEditFormProps> = ({
       </div>
 
       <div>
-        <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-1">
-          Hotels Being Considered
+        <label className="block text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-2">
+          Hotels Being Considered ({event.hotels_considered.length})
         </label>
-        <HotelsConsidered
-          hotels={event.hotels_considered}
-          enabled={true}
-          onAdd={onAddHotel}
-          onSelect={onSelectHotel}
-          onRename={onRenameHotel}
-          onRemove={onRemoveHotel}
-        />
+
+        <div className="flex gap-2 mb-3">
+          <input
+            type="text"
+            value={newHotelName}
+            onChange={(e) => setNewHotelName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddHotel(); } }}
+            placeholder="Add a hotel candidate…"
+            className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm"
+          />
+          <button
+            type="button"
+            onClick={handleAddHotel}
+            disabled={!newHotelName.trim() || adding}
+            className="px-3 py-2 bg-gray-900 text-white text-sm rounded-md hover:bg-gray-800 disabled:opacity-50"
+          >
+            + Add
+          </button>
+        </div>
+
+        {sortedHotels.length === 0 ? (
+          <p className="text-xs text-gray-400 italic">No hotels added yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {sortedHotels.map((h) => (
+              <HotelEditCard
+                key={h.id}
+                hotel={h}
+                notes={hotelNotes[h.id] || []}
+                onChange={(patch) => onUpdateHotel(h.id, patch)}
+                onRemove={() => onRemoveHotel(h.id)}
+                onAddNote={(body) => onAddHotelNote(h.id, body)}
+                onEditNote={(noteId, body) => onEditHotelNote(h.id, noteId, body)}
+                onDeleteNote={(noteId) => onDeleteHotelNote(h.id, noteId)}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
@@ -1070,10 +1161,142 @@ const RFPInfoEditForm: React.FC<RFPInfoEditFormProps> = ({
           disabled={saving}
           className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
         >
-          {saving ? 'Saving…' : 'Save Metrics'}
+          {saving ? 'Saving…' : 'Save Hotel Info'}
         </button>
       </div>
     </section>
+  );
+};
+
+// ----- Per-hotel rich edit card -----
+
+const HOTEL_STATUS_OPTIONS: { value: HotelStatus; label: string }[] = [
+  { value: 'considered', label: 'Considered' },
+  { value: 'no_longer_considered', label: 'No Longer Considered' },
+  { value: 'winner', label: 'Winner' },
+];
+
+interface HotelEditCardProps {
+  hotel: HotelConsidered;
+  notes: CommissionNote[];
+  onChange: (patch: HotelConsideredUpdate) => Promise<void>;
+  onRemove: () => Promise<void>;
+  onAddNote: (body: string) => Promise<void>;
+  onEditNote: (noteId: string, body: string) => Promise<void>;
+  onDeleteNote: (noteId: string) => Promise<void>;
+}
+
+const HotelEditCard: React.FC<HotelEditCardProps> = ({
+  hotel, notes, onChange, onRemove, onAddNote, onEditNote, onDeleteNote,
+}) => {
+  const [name, setName] = useState(hotel.name);
+  const [contact, setContact] = useState<NimbleSelection>({
+    id: hotel.primary_contact_id || null,
+    name: hotel.contact_name || '',
+    email: hotel.contact_email || null,
+  });
+  const [contactItems, setContactItems] = useState<PickerItem[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+
+  // Load Nimble people whose company matches this hotel's name.
+  useEffect(() => {
+    if (!hotel.name) { setContactItems([]); return; }
+    let cancelled = false;
+    (async () => {
+      setContactsLoading(true);
+      try {
+        const data = await nimbleApi.listContactsByCompany({ company: hotel.name, company_id: null });
+        if (!cancelled) {
+          setContactItems(data.map((p) => ({
+            id: p.id, label: p.name,
+            sublabel: [p.title, p.email].filter(Boolean).join(' · '),
+            email: p.email,
+          })));
+        }
+      } catch {
+        if (!cancelled) setContactItems([]);
+      } finally {
+        if (!cancelled) setContactsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [hotel.name]);
+
+  const tone = HOTEL_STATUS_BADGE[hotel.status] || HOTEL_STATUS_BADGE.considered;
+
+  return (
+    <div className={`rounded-lg border-2 p-4 ${
+      hotel.status === 'winner' ? 'border-emerald-300 bg-emerald-50/30'
+      : hotel.status === 'no_longer_considered' ? 'border-gray-200 bg-gray-50/40'
+      : 'border-blue-200 bg-blue-50/30'
+    }`}>
+      <div className="flex items-start gap-3">
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => { if (name.trim() && name.trim() !== hotel.name) onChange({ name: name.trim() }); }}
+          className="flex-1 px-2 py-1.5 text-sm font-medium border border-gray-300 rounded bg-white"
+        />
+        <select
+          value={hotel.status}
+          onChange={(e) => onChange({ status: e.target.value as HotelStatus })}
+          className={`px-2 py-1.5 text-xs font-semibold uppercase tracking-wider rounded border ${tone.classes}`}
+          title="Setting one to Winner moves all others to No Longer Considered"
+        >
+          {HOTEL_STATUS_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={async () => {
+            if (window.confirm(`Remove ${hotel.name} from this event?`)) await onRemove();
+          }}
+          className="px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded"
+        >
+          Remove
+        </button>
+      </div>
+
+      <div className="mt-3">
+        <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-1">
+          Primary Contact at Hotel
+        </label>
+        <NimbleTypeahead
+          items={contactItems}
+          loading={contactsLoading}
+          loadingHint="Looking up contacts at this hotel in Nimble…"
+          emptyHint="No matching contacts in Nimble — type a name to save freeform."
+          value={contact}
+          onChange={(v) => {
+            setContact(v);
+            // Save immediately on selection or freeform change.
+            onChange({
+              primary_contact_id: v.id,
+              contact_name: v.name.trim() || null,
+              contact_email: v.email || null,
+            });
+          }}
+          placeholder="Search Nimble or type a name…"
+        />
+      </div>
+
+      <div className="mt-3 pt-3 border-t border-gray-200">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-2">
+          Notes{notes.length ? ` (${notes.length})` : ''}
+        </div>
+        <NoteFeed
+          notes={notes}
+          enabled={true}
+          placeholder={`Note about ${hotel.name}…`}
+          emptyHint="No notes on this hotel yet."
+          onAdd={onAddNote}
+          onEdit={onEditNote}
+          onDelete={onDeleteNote}
+        />
+      </div>
+    </div>
   );
 };
 
@@ -1086,29 +1309,38 @@ const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, ch
   </div>
 );
 
-const HotelRow: React.FC<{ hotel: HotelConsidered }> = ({ hotel }) => (
-  <li className="flex items-center gap-3 py-2">
-    <span
-      className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
-        hotel.is_selected ? 'bg-emerald-600' : 'border-2 border-gray-200'
-      }`}
-    >
-      {hotel.is_selected && (
-        <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-        </svg>
-      )}
-    </span>
-    <span className={`text-sm ${hotel.is_selected ? 'font-semibold text-gray-900' : 'text-gray-600'}`}>
-      {hotel.name}
-    </span>
-    {hotel.is_selected && (
-      <span className="text-[10px] uppercase tracking-wider text-emerald-700 font-semibold px-1.5 py-0.5 bg-emerald-100 rounded">
-        Selected
-      </span>
-    )}
-  </li>
-);
+const HOTEL_STATUS_BADGE: Record<HotelStatus, { label: string; classes: string }> = {
+  considered: { label: 'Considered', classes: 'bg-blue-100 text-blue-800' },
+  no_longer_considered: { label: 'No Longer Considered', classes: 'bg-gray-200 text-gray-600' },
+  winner: { label: 'Winner', classes: 'bg-emerald-100 text-emerald-800' },
+};
+
+const HotelRow: React.FC<{ hotel: HotelConsidered }> = ({ hotel }) => {
+  const badge = HOTEL_STATUS_BADGE[hotel.status] || HOTEL_STATUS_BADGE.considered;
+  const isWinner = hotel.status === 'winner';
+  const isOut = hotel.status === 'no_longer_considered';
+  return (
+    <li className="flex items-start gap-3 py-2">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`text-sm ${isWinner ? 'font-semibold text-gray-900' : isOut ? 'text-gray-500 line-through' : 'text-gray-700'}`}>
+            {hotel.name}
+          </span>
+          <span className={`text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ${badge.classes}`}>
+            {badge.label}
+          </span>
+        </div>
+        {(hotel.contact_name || hotel.contact_email) && (
+          <div className="text-xs text-gray-500 mt-0.5">
+            {hotel.contact_name}
+            {hotel.contact_name && hotel.contact_email && ' · '}
+            {hotel.contact_email}
+          </div>
+        )}
+      </div>
+    </li>
+  );
+};
 
 // ---------- Line item row (read-only with notes + edit link) ----------
 

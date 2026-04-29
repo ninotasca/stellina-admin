@@ -280,8 +280,10 @@ const CommissionForm: React.FC = () => {
         id: `draft-${crypto.randomUUID()}`,
         event_id: '',
         name,
-        is_selected: hotelsConsidered.length === 0, // first one auto-selects
+        is_selected: hotelsConsidered.length === 0, // first one auto-selects (winner)
+        status: hotelsConsidered.length === 0 ? 'winner' : 'considered',
         notes: null,
+        primary_contact_id: null,
         contact_name: null,
         contact_email: null,
         contact_phone: null,

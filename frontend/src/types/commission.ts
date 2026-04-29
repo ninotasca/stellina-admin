@@ -4,12 +4,16 @@ export type ConsiderationType = 'hotel' | 'dmc' | 'air' | 'other';
 export type PaymentStatus = 'pending_booking' | 'upcoming' | 'invoiced' | 'paid' | 'on_hold' | 'cancelled';
 export type NoteParentType = 'event' | 'line_item';
 
+export type HotelStatus = 'considered' | 'no_longer_considered' | 'winner';
+
 export interface HotelConsidered {
   id: string;
   event_id: string;
   name: string;
   is_selected: boolean;
+  status: HotelStatus;
   notes: string | null;
+  primary_contact_id: string | null;
   contact_name: string | null;
   contact_email: string | null;
   contact_phone: string | null;
@@ -19,7 +23,9 @@ export interface HotelConsidered {
 export interface HotelConsideredCreate {
   name: string;
   is_selected?: boolean;
+  status?: HotelStatus;
   notes?: string | null;
+  primary_contact_id?: string | null;
   contact_name?: string | null;
   contact_email?: string | null;
   contact_phone?: string | null;
@@ -28,7 +34,9 @@ export interface HotelConsideredCreate {
 export interface HotelConsideredUpdate {
   name?: string;
   is_selected?: boolean;
+  status?: HotelStatus;
   notes?: string | null;
+  primary_contact_id?: string | null;
   contact_name?: string | null;
   contact_email?: string | null;
   contact_phone?: string | null;

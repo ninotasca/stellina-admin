@@ -87,6 +87,15 @@ export const commissionApi = {
     const res = await apiClient.get(`/commissions/line-items/${lineItemId}/notes`);
     return res.data;
   },
+  listHotelNotes: async (hotelId: string): Promise<CommissionNote[]> => {
+    const res = await apiClient.get(`/commissions/hotels/${hotelId}/notes`);
+    return res.data;
+  },
+  addHotelNote: async (hotelId: string, body: string): Promise<CommissionNote> => {
+    const res = await apiClient.post(`/commissions/hotels/${hotelId}/notes`, { body });
+    return res.data;
+  },
+
   addLineItemNote: async (lineItemId: string, body: string): Promise<CommissionNote> => {
     const res = await apiClient.post(`/commissions/line-items/${lineItemId}/notes`, { body });
     return res.data;
