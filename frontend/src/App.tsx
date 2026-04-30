@@ -9,6 +9,7 @@ import RFPList from './pages/RFPList';
 import RFPForm from './pages/RFPForm';
 import HotelInvitations from './pages/HotelInvitations';
 import HotelResponseForm from './pages/HotelResponseForm';
+import RFPPreview from './pages/RFPPreview';
 import ResponseComparison from './pages/ResponseComparison';
 import CommissionList from './pages/CommissionList';
 import CommissionForm from './pages/CommissionForm';
@@ -31,6 +32,16 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/auth/callback" element={<Login />} />
           <Route path="/hotel-response/:guid" element={<HotelResponseForm />} />
+
+          {/* Admin-only but renders the Partner Portal shell, not the admin nav */}
+          <Route
+            path="/rfps/:rfpId/preview"
+            element={
+              <ProtectedRoute requireAdmin={true}>
+                <RFPPreview />
+              </ProtectedRoute>
+            }
+          />
 
           {/* All admin pages share the AppShell chrome (top nav + settings menu) */}
           <Route element={adminShell}>

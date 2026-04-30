@@ -150,6 +150,27 @@ export const rfpApi = {
   deleteCustomQuestion: async (questionId: string): Promise<void> => {
     await apiClient.delete(`/rfps/custom-questions/${questionId}`);
   },
+
+  // RFP attachments (admin-uploaded docs hoteliers download)
+  listAttachments: async (rfpId: string): Promise<Array<{
+    id: string; rfp_id: string; filename: string; size_bytes: number;
+    content_type?: string | null; uploaded_at: string;
+  }>> => {
+    const res = await apiClient.get(`/rfps/${rfpId}/attachments`);
+    return res.data;
+  },
+
+  uploadAttachment: async (rfpId: string, file: File): Promise<void> => {
+    const form = new FormData();
+    form.append('file', file);
+    await apiClient.post(`/rfps/${rfpId}/attachments`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  deleteAttachment: async (attachmentId: string): Promise<void> => {
+    await apiClient.delete(`/rfps/attachments/${attachmentId}`);
+  },
 };
 
 // Hotel Invitation APIs (Admin) — invitations reference event_hotel_id (a candidate hotel on the event)
@@ -249,5 +270,33 @@ export const publicHotelApi = {
 
   submitResponse: async (guid: string): Promise<void> => {
     await axios.post(`${API_BASE_URL}/hotel-invitations/public/${guid}/submit`);
+  },
+
+  listAttachments: async (guid: string): Promise<Array<{
+    id: string; filename: string; size_bytes: number; content_type?: string | null; uploaded_at?: string;
+  }>> => {
+    const res = await axios.get(`${API_BASE_URL}/hotel-invitations/public/${guid}/attachments`);
+    return res.data;
+  },
+
+  uploadAttachment: async (guid: string, file: File): Promise<void> => {
+    const form = new FormData();
+    form.append('file', file);
+    await axios.post(
+      `${API_BASE_URL}/hotel-invitations/public/${guid}/attachments`,
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    );
+  },
+
+  deleteAttachment: async (guid: string, attachmentId: string): Promise<void> => {
+    await axios.delete(`${API_BASE_URL}/hotel-invitations/public/${guid}/attachments/${attachmentId}`);
+  },
+
+  listRfpAttachments: async (guid: string): Promise<Array<{
+    id: string; filename: string; size_bytes: number; content_type?: string | null; url?: string | null;
+  }>> => {
+    const res = await axios.get(`${API_BASE_URL}/hotel-invitations/public/${guid}/rfp-attachments`);
+    return res.data;
   },
 };

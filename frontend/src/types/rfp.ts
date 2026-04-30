@@ -5,7 +5,10 @@ export interface RFP {
   id: string;
   event_id: string;
   rfp_type: string;
-  instructions?: string;
+  instructions?: string; // HTML from the rich-text editor
+  display_name?: string | null;
+  display_company_name?: string | null;
+  hide_company?: boolean;
   created_by?: string;
   created_at: string;
   updated_at: string;
@@ -14,6 +17,19 @@ export interface RFP {
 export interface RFPCreate {
   rfp_type: string;
   instructions?: string;
+  display_name?: string | null;
+  display_company_name?: string | null;
+  hide_company?: boolean;
+}
+
+export interface RFPAttachment {
+  id: string;
+  rfp_id: string;
+  filename: string;
+  size_bytes: number;
+  content_type?: string | null;
+  uploaded_at: string;
+  url?: string | null; // present on the public listing only
 }
 
 export interface RoomNight {

@@ -784,7 +784,7 @@ const RFPInfoCard: React.FC<{
   rfps: RFP[];
   onEditEvent: () => void;
   onNewRfp: () => void;
-  onOpenRfp: (rfpId: string, view: 'edit' | 'invitations' | 'responses') => void;
+  onOpenRfp: (rfpId: string, view: 'edit' | 'invitations' | 'responses' | 'preview') => void;
 }> = ({ event, rfps, onEditEvent, onNewRfp, onOpenRfp }) => {
   // Sort: winner → considered → no_longer_considered, then by created_at.
   const sortedHotels = [...event.hotels_considered].sort((a, b) => {
@@ -826,30 +826,44 @@ const RFPInfoCard: React.FC<{
         )}
       </div>
 
-      {/* RFPs list */}
-      <div>
+      {/* RFPs — slightly tinted, still inside the Hotels / RFPs card */}
+      <div className="rounded-md bg-indigo-50 ring-1 ring-indigo-100 p-3">
         <div className="flex items-baseline justify-between mb-2">
-          <span className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-indigo-700">
             RFPs ({rfps.length})
           </span>
-          <button onClick={onNewRfp} className="text-xs text-blue-600 hover:underline">+ New RFP</button>
+          <button
+            onClick={onNewRfp}
+            className="px-2.5 py-1 text-xs font-medium text-indigo-700 bg-white border border-indigo-300 rounded hover:bg-indigo-100"
+          >
+            + New RFP
+          </button>
         </div>
         {rfps.length === 0 ? (
-          <p className="text-sm text-gray-500 italic">No RFPs yet for this event.</p>
+          <p className="text-xs text-indigo-700/70 italic">No RFPs yet for this event.</p>
         ) : (
-          <ul className="divide-y divide-gray-100">
+          <ul className="divide-y divide-indigo-100">
             {rfps.map((r) => (
-              <li key={r.id} className="flex items-center justify-between py-2.5">
+              <li key={r.id} className="flex items-center justify-between py-2">
                 <div>
                   <div className="text-sm font-medium text-gray-900">{r.rfp_type}</div>
-                  <div className="text-xs text-gray-500">
+                  <div className="text-[11px] text-gray-500">
                     Created {new Date(r.created_at).toLocaleDateString()}
                   </div>
                 </div>
                 <div className="flex gap-3 text-xs">
-                  <button onClick={() => onOpenRfp(r.id, 'edit')} className="text-indigo-600 hover:underline">Edit</button>
-                  <button onClick={() => onOpenRfp(r.id, 'invitations')} className="text-green-600 hover:underline">Invitations</button>
-                  <button onClick={() => onOpenRfp(r.id, 'responses')} className="text-blue-600 hover:underline">Responses</button>
+                  <button onClick={() => onOpenRfp(r.id, 'edit')} className="text-indigo-700 hover:underline">Edit</button>
+                  <a
+                    href={`/rfps/${r.id}/preview`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-amber-700 hover:underline"
+                    title="See what hotels will see (opens in new tab)"
+                  >
+                    Preview ↗
+                  </a>
+                  <button onClick={() => onOpenRfp(r.id, 'invitations')} className="text-emerald-700 hover:underline">Invitations</button>
+                  <button onClick={() => onOpenRfp(r.id, 'responses')} className="text-blue-700 hover:underline">Responses</button>
                 </div>
               </li>
             ))}
@@ -1323,7 +1337,7 @@ const HotelRow: React.FC<{ hotel: HotelConsidered }> = ({ hotel }) => {
     <li className="flex items-start gap-3 py-2">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className={`text-sm ${isWinner ? 'font-semibold text-gray-900' : isOut ? 'text-gray-500 line-through' : 'text-gray-700'}`}>
+          <span className={`text-sm ${isWinner ? 'font-semibold text-gray-900' : isOut ? 'text-gray-400' : 'text-gray-700'}`}>
             {hotel.name}
           </span>
           <span className={`text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ${badge.classes}`}>

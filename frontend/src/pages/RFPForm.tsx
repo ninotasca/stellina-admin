@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { rfpApi } from '../services/rfpApi';
 import { commissionApi } from '../services/commissionApi';
+import RichTextInput from '../components/RichTextInput';
 import type {
   CustomQuestionCreate,
   CustomQuestionType,
@@ -10,6 +11,12 @@ import type {
   RoomNightCreate,
 } from '../types/rfp';
 import type { CommissionEventWithLineItems } from '../types/commission';
+
+interface AttachmentRow {
+  id: string;
+  filename: string;
+  size_bytes: number;
+}
 
 interface RoomNightRow {
   id?: string;
@@ -52,9 +59,14 @@ const RFPForm: React.FC = () => {
 
   const [rfpType, setRfpType] = useState('All Inclusive - Standard');
   const [instructions, setInstructions] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [displayCompanyName, setDisplayCompanyName] = useState('');
+  const [hideCompany, setHideCompany] = useState(false);
   const [roomNights, setRoomNights] = useState<RoomNightRow[]>([]);
   const [meetingRooms, setMeetingRooms] = useState<MeetingRoomRow[]>([]);
   const [customQuestions, setCustomQuestions] = useState<CustomQuestionRow[]>([]);
+  const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +82,14 @@ const RFPForm: React.FC = () => {
           setEventId(rfp.event_id);
           setRfpType(rfp.rfp_type);
           setInstructions(rfp.instructions || '');
+          setDisplayName(rfp.display_name || '');
+          setDisplayCompanyName(rfp.display_company_name || '');
+          setHideCompany(!!rfp.hide_company);
+          // Load existing attachments
+          try {
+            const att = await rfpApi.listAttachments(rfpIdParam);
+            if (!cancelled) setAttachments(att.map((a) => ({ id: a.id, filename: a.filename, size_bytes: a.size_bytes })));
+          } catch { /* table may not exist yet */ }
           setRoomNights(
             rfp.room_nights.map((rn) => ({
               id: rn.id,
@@ -102,6 +122,9 @@ const RFPForm: React.FC = () => {
           const ev = await commissionApi.getEvent(eventIdParam);
           if (cancelled) return;
           setEvent(ev);
+          // Default the display fields from the event for new RFPs
+          setDisplayName(ev.meeting_name || '');
+          setDisplayCompanyName(ev.client_company_name || '');
           // Auto-generate room nights for each day of the trip
           if (ev.arrival_date && ev.depart_date) {
             const start = new Date(ev.arrival_date);
@@ -138,9 +161,18 @@ const RFPForm: React.FC = () => {
       setLoading(true);
       setError(null);
 
+      if (!displayName.trim()) {
+        setError('RFP name (shown to hoteliers) is required.');
+        setLoading(false);
+        return;
+      }
+
       const rfpData: RFPCreate = {
         rfp_type: rfpType,
         instructions: instructions || undefined,
+        display_name: displayName.trim(),
+        display_company_name: displayCompanyName.trim() || null,
+        hide_company: hideCompany,
       };
 
       let rfpId: string;
@@ -284,16 +316,115 @@ const RFPForm: React.FC = () => {
               <option value="All Inclusive - Standard">All Inclusive - Standard</option>
             </select>
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              RFP Name (shown to hoteliers) *
+            </label>
+            <input
+              type="text"
+              required
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="e.g., 2026 Annual Sales Kick-off"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            />
+            <p className="mt-1 text-xs text-gray-500">Defaults to the event meeting name. Edit to refine what hoteliers see.</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Company Name (shown to hoteliers)
+            </label>
+            <input
+              type="text"
+              value={displayCompanyName}
+              onChange={(e) => setDisplayCompanyName(e.target.value)}
+              disabled={hideCompany}
+              placeholder="Defaults to the event client company"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100 disabled:text-gray-400"
+            />
+            <label className="mt-2 inline-flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={hideCompany}
+                onChange={(e) => setHideCompany(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              Don't show company name to hoteliers
+            </label>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Instructions for Hoteliers
             </label>
-            <textarea
+            <RichTextInput
               value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              onChange={setInstructions}
+              placeholder="Provide context, deadlines, key constraints…"
             />
+            <p className="mt-1 text-xs text-gray-500">Renders to hoteliers exactly as it looks here.</p>
+          </div>
+
+          {/* RFP attachments — admin-uploaded docs hoteliers download */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">RFP Attachments</label>
+            <p className="text-xs text-gray-500 mb-2">
+              Upload your physical RFP, floor-plan requirements, or any supplementary docs.
+              Hoteliers will see these as downloadable links.
+            </p>
+            <label className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+              <span className="text-sm text-gray-600">
+                {uploadingAttachment ? 'Uploading…' : isEditMode ? 'Click to add a file' : 'Save the RFP first to enable uploads'}
+              </span>
+              <input
+                type="file"
+                className="hidden"
+                disabled={!isEditMode || uploadingAttachment}
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  if (!f || !rfpIdParam) return;
+                  setUploadingAttachment(true);
+                  try {
+                    await rfpApi.uploadAttachment(rfpIdParam, f);
+                    const att = await rfpApi.listAttachments(rfpIdParam);
+                    setAttachments(att.map((a) => ({ id: a.id, filename: a.filename, size_bytes: a.size_bytes })));
+                  } catch (err: any) {
+                    alert(`Upload failed: ${err.response?.data?.detail || err.message || ''}`);
+                  } finally {
+                    setUploadingAttachment(false);
+                    e.target.value = '';
+                  }
+                }}
+              />
+            </label>
+            {attachments.length > 0 && (
+              <ul className="mt-2 divide-y divide-gray-100 ring-1 ring-gray-200 rounded-md">
+                {attachments.map((a) => (
+                  <li key={a.id} className="flex items-center gap-3 px-3 py-2">
+                    <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                    </svg>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-gray-900 truncate" title={a.filename}>{a.filename}</div>
+                      <div className="text-[11px] text-gray-500">{(a.size_bytes / 1024).toFixed(1)} KB</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!window.confirm(`Remove ${a.filename}?`)) return;
+                        await rfpApi.deleteAttachment(a.id);
+                        setAttachments((p) => p.filter((x) => x.id !== a.id));
+                      }}
+                      className="text-xs text-red-600 hover:underline shrink-0"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       </div>
@@ -373,7 +504,7 @@ const RFPForm: React.FC = () => {
         <h2 className="text-xl font-semibold mb-4">Meeting Rooms</h2>
         {meetingRooms.map((mr, index) => (
           <div key={index} className="border-b pb-4 mb-4 last:border-b-0">
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
                 <input
@@ -416,19 +547,6 @@ const RFPForm: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <input
-                  type="text"
-                  value={mr.description}
-                  onChange={(e) => {
-                    const next = [...meetingRooms];
-                    next[index].description = e.target.value;
-                    setMeetingRooms(next);
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                />
-              </div>
               <div className="flex items-end">
                 <button
                   onClick={() => removeMeetingRoom(index)}
@@ -437,6 +555,20 @@ const RFPForm: React.FC = () => {
                   Remove
                 </button>
               </div>
+            </div>
+            <div className="mt-3">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <textarea
+                value={mr.description}
+                onChange={(e) => {
+                  const next = [...meetingRooms];
+                  next[index].description = e.target.value;
+                  setMeetingRooms(next);
+                }}
+                rows={2}
+                placeholder="Layout, A/V needs, F&B notes…"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              />
             </div>
           </div>
         ))}
