@@ -197,12 +197,12 @@ function deriveWarnings(event: CommissionEventWithLineItems): string[] {
       if (li.payment_status === 'cancelled') continue;
       if (li.arrival_date && li.arrival_date < event.arrival_date) {
         warnings.push(
-          `${li.line_type.toUpperCase()} line "${li.company_name}" arrives ${fmtDate(li.arrival_date, { month: 'short', day: 'numeric' })}, before the event arrival ${fmtDate(event.arrival_date, { month: 'short', day: 'numeric' })}.`,
+          `${li.line_type.toUpperCase()} line "${li.company_name}" arrives ${fmtDate(li.arrival_date, { month: 'short', day: 'numeric' })}, before the booking arrival ${fmtDate(event.arrival_date, { month: 'short', day: 'numeric' })}.`,
         );
       }
       if (li.depart_date && li.depart_date > event.depart_date) {
         warnings.push(
-          `${li.line_type.toUpperCase()} line "${li.company_name}" departs ${fmtDate(li.depart_date, { month: 'short', day: 'numeric' })}, after the event departure ${fmtDate(event.depart_date, { month: 'short', day: 'numeric' })}.`,
+          `${li.line_type.toUpperCase()} line "${li.company_name}" departs ${fmtDate(li.depart_date, { month: 'short', day: 'numeric' })}, after the booking departure ${fmtDate(event.depart_date, { month: 'short', day: 'numeric' })}.`,
         );
       }
     }
@@ -316,7 +316,7 @@ const CommissionView: React.FC = () => {
           setHotelNotes(hNotes);
         }
       } catch (err: any) {
-        if (!cancelled) setError(err.response?.data?.detail || 'Failed to load event');
+        if (!cancelled) setError(err.response?.data?.detail || 'Failed to load booking');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -840,7 +840,7 @@ const RFPInfoCard: React.FC<{
           </button>
         </div>
         {rfps.length === 0 ? (
-          <p className="text-xs text-indigo-700/70 italic">No RFPs yet for this event.</p>
+          <p className="text-xs text-indigo-700/70 italic">No RFPs yet for this booking.</p>
         ) : (
           <ul className="divide-y divide-indigo-100">
             {rfps.map((r) => (

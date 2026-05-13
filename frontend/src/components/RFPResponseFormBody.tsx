@@ -198,7 +198,7 @@ const RFPResponseFormBody: React.FC<Props> = ({
             RFP Response Form
           </div>
           <h1 className="text-3xl font-bold text-slate-900">
-            {rfp.display_name || info.event_meeting_name || 'Event'}
+            {rfp.display_name || info.event_meeting_name || 'Booking'}
           </h1>
           {!rfp.hide_company && (rfp.display_company_name || info.event_client_company_name) && (
             <p className="text-slate-700 text-sm mt-1">

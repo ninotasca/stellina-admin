@@ -154,7 +154,7 @@ const RFPForm: React.FC = () => {
 
   const handleSave = async () => {
     if (!eventId) {
-      setError('Missing event reference');
+      setError('Missing booking reference');
       return;
     }
     try {
@@ -291,7 +291,7 @@ const RFPForm: React.FC = () => {
       {/* Event context (read-only) */}
       {event && (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
-          <div className="text-xs uppercase tracking-wider text-gray-500 mb-1">Commission Event</div>
+          <div className="text-xs uppercase tracking-wider text-gray-500 mb-1">Commission Booking</div>
           <div className="text-lg font-semibold text-gray-900">{event.meeting_name}</div>
           <div className="text-sm text-gray-700 mt-1">
             {event.client_company_name || <em className="text-gray-400">No client</em>}
@@ -329,7 +329,7 @@ const RFPForm: React.FC = () => {
               placeholder="e.g., 2026 Annual Sales Kick-off"
               className="w-full px-3 py-2 border border-gray-300 rounded-md"
             />
-            <p className="mt-1 text-xs text-gray-500">Defaults to the event meeting name. Edit to refine what hoteliers see.</p>
+            <p className="mt-1 text-xs text-gray-500">Defaults to the booking meeting name. Edit to refine what hoteliers see.</p>
           </div>
 
           <div>
@@ -341,7 +341,7 @@ const RFPForm: React.FC = () => {
               value={displayCompanyName}
               onChange={(e) => setDisplayCompanyName(e.target.value)}
               disabled={hideCompany}
-              placeholder="Defaults to the event client company"
+              placeholder="Defaults to the booking client company"
               className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100 disabled:text-gray-400"
             />
             <label className="mt-2 inline-flex items-center gap-2 text-sm text-gray-700">

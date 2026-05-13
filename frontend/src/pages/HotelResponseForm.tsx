@@ -80,7 +80,7 @@ const HotelResponseForm: React.FC = () => {
             <p className="text-emerald-800 text-sm mt-1">Your response has been submitted.</p>
           </div>
           <div className="px-6 py-5 text-sm text-slate-700">
-            Your response for <strong>{info.event_meeting_name || 'this event'}</strong> has been recorded.
+            Your response for <strong>{info.event_meeting_name || 'this booking'}</strong> has been recorded.
             If you need to make changes, please contact the RFP organizer.
           </div>
         </section>

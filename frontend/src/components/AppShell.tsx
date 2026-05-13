@@ -12,7 +12,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { to: '/dashboard', label: 'Home', end: true },
   { to: '/commissions', label: 'Commission Tracker', end: true },
-  { to: '/commissions/list', label: 'Events' },
+  { to: '/commissions/list', label: 'Bookings' },
   { to: '/rfps', label: 'RFPs' },
 ];
 

@@ -109,7 +109,7 @@ const RFPList: React.FC = () => {
                       onClick={() => navigate(`/commissions/${rfp.event_id}`)}
                       className="text-sm font-medium text-blue-700 hover:underline text-left"
                     >
-                      {rfp.event_meeting_name || <em className="text-gray-400">Untitled event</em>}
+                      {rfp.event_meeting_name || <em className="text-gray-400">Untitled booking</em>}
                     </button>
                   </td>
                   <td className="px-6 py-4">

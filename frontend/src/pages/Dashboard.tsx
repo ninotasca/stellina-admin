@@ -39,16 +39,18 @@ function deriveStage(bookingStatus: string, paymentStatus: PaymentStatus): Stage
   return 'booked';
 }
 
-// ---------- Quick-link categories (must match Events page presets) ----------
+// ---------- Badges ----------
 
-type CategoryKey = 'needs_invoice' | 'awaiting_payment' | 'coming_soon' | 'in_pipeline';
+type Badge = { label: string; bg: string; text: string };
 
-const CATEGORY_DEF: { key: CategoryKey; label: string; tone: string; bg: string; text: string; ring: string; rank: number }[] = [
-  { key: 'needs_invoice', label: 'Needs Invoice', tone: 'orange', bg: 'bg-orange-100', text: 'text-orange-800', ring: 'ring-orange-200', rank: 1 },
-  { key: 'awaiting_payment', label: 'Awaiting Payment', tone: 'blue', bg: 'bg-blue-100', text: 'text-blue-800', ring: 'ring-blue-200', rank: 2 },
-  { key: 'coming_soon', label: 'Coming Soon', tone: 'indigo', bg: 'bg-indigo-100', text: 'text-indigo-800', ring: 'ring-indigo-200', rank: 3 },
-  { key: 'in_pipeline', label: 'In Pipeline', tone: 'yellow', bg: 'bg-yellow-100', text: 'text-yellow-800', ring: 'ring-yellow-200', rank: 4 },
-];
+const NEEDS_INVOICE_BADGE: Badge = { label: 'Needs Invoice', bg: 'bg-orange-100', text: 'text-orange-800' };
+const AWAITING_PAYMENT_BADGE: Badge = { label: 'Awaiting Payment', bg: 'bg-blue-100', text: 'text-blue-800' };
+const COMING_SOON_BADGE: Badge = { label: 'Coming Soon', bg: 'bg-indigo-100', text: 'text-indigo-800' };
+const PROSPECT_BADGE: Badge = { label: 'Prospect', bg: 'bg-gray-100', text: 'text-gray-700' };
+const TENTATIVE_BADGE: Badge = { label: 'Tentative', bg: 'bg-yellow-100', text: 'text-yellow-800' };
+
+type EventRow = { event: CommissionEventWithLineItems; badge: Badge };
+type LineRow = { event: CommissionEventWithLineItems; line: CommissionLineItem; badge: Badge; detail: string };
 
 // ---------- Formatters ----------
 
@@ -100,51 +102,69 @@ const Dashboard: React.FC = () => {
     return () => { cancelled = true; };
   }, []);
 
-  // ---------- Need-to-know events ----------
+  // ---------- Need-to-know bookings ----------
 
-  type Row = { category: typeof CATEGORY_DEF[number]; event: CommissionEventWithLineItems };
-
-  const needToKnow: Row[] = useMemo(() => {
+  const groups = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
-    const in30 = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const out: Row[] = [];
+    const oneWeekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const in30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+
+    const daysSince = (dateStr: string): number =>
+      Math.max(0, Math.floor((Date.parse(today) - Date.parse(dateStr)) / 86400000));
+
+    const inPipeline: EventRow[] = [];
+    const needAttention: LineRow[] = [];
+    const comingSoon: EventRow[] = [];
 
     for (const ev of events) {
-      const lines = ev.line_items;
+      // In Pipeline — prospect or tentative bookings, badge shows actual status
+      if (ev.booking_status === 'prospect') {
+        inPipeline.push({ event: ev, badge: PROSPECT_BADGE });
+      } else if (ev.booking_status === 'tentative') {
+        inPipeline.push({ event: ev, badge: TENTATIVE_BADGE });
+      }
 
-      const isInPipeline = ev.booking_status === 'prospect' || ev.booking_status === 'tentative';
-      const isAwaitingPayment = ev.booking_status === 'definite' && lines.some((l) => l.payment_status === 'invoiced');
-      const isNeedsInvoice = ev.booking_status === 'definite' && lines.some(
-        (l) => l.depart_date && l.depart_date < today &&
-               (l.payment_status === 'pending_booking' || l.payment_status === 'upcoming')
-      );
-      const isComingSoon = lines.some((l) => l.arrival_date && l.arrival_date >= today && l.arrival_date <= in30);
+      // Need Attention — per line item, 1-week grace
+      if (ev.booking_status === 'definite') {
+        for (const li of ev.line_items) {
+          if (li.depart_date && li.depart_date <= oneWeekAgo &&
+              (li.payment_status === 'pending_booking' || li.payment_status === 'upcoming')) {
+            needAttention.push({
+              event: ev, line: li, badge: NEEDS_INVOICE_BADGE,
+              detail: `Ended ${daysSince(li.depart_date)}d ago`,
+            });
+          }
+          if (li.payment_status === 'invoiced' && li.invoice_sent_date && li.invoice_sent_date <= oneWeekAgo) {
+            needAttention.push({
+              event: ev, line: li, badge: AWAITING_PAYMENT_BADGE,
+              detail: `Invoiced ${daysSince(li.invoice_sent_date)}d ago`,
+            });
+          }
+        }
+      }
 
-      // One row per category match (so urgency is clear)
-      if (isNeedsInvoice) out.push({ category: CATEGORY_DEF.find((c) => c.key === 'needs_invoice')!, event: ev });
-      if (isAwaitingPayment) out.push({ category: CATEGORY_DEF.find((c) => c.key === 'awaiting_payment')!, event: ev });
-      if (isComingSoon) out.push({ category: CATEGORY_DEF.find((c) => c.key === 'coming_soon')!, event: ev });
-      if (isInPipeline) out.push({ category: CATEGORY_DEF.find((c) => c.key === 'in_pipeline')!, event: ev });
+      // Coming Soon — event level, any line arriving in next 30 days
+      if (ev.line_items.some((l) => l.arrival_date && l.arrival_date >= today && l.arrival_date <= in30)) {
+        comingSoon.push({ event: ev, badge: COMING_SOON_BADGE });
+      }
     }
 
-    // Sort by category rank, then by event start date
-    out.sort((a, b) => {
-      if (a.category.rank !== b.category.rank) return a.category.rank - b.category.rank;
-      const ad = a.event.arrival_date || '9999';
-      const bd = b.event.arrival_date || '9999';
-      return ad.localeCompare(bd);
+    const byEventDate = (a: { event: CommissionEventWithLineItems }, b: { event: CommissionEventWithLineItems }) =>
+      (a.event.arrival_date || '9999').localeCompare(b.event.arrival_date || '9999');
+    inPipeline.sort(byEventDate);
+    comingSoon.sort(byEventDate);
+    needAttention.sort((a, b) => {
+      if (a.badge.label !== b.badge.label) return a.badge.label.localeCompare(b.badge.label);
+      const aDate = a.badge === NEEDS_INVOICE_BADGE ? (a.line.depart_date || '9999') : (a.line.invoice_sent_date || '9999');
+      const bDate = b.badge === NEEDS_INVOICE_BADGE ? (b.line.depart_date || '9999') : (b.line.invoice_sent_date || '9999');
+      return aDate.localeCompare(bDate);
     });
-    return out;
+
+    return { inPipeline, needAttention, comingSoon };
   }, [events]);
 
-  const needAttention = useMemo(
-    () => needToKnow.filter((r) => r.category.key === 'needs_invoice' || r.category.key === 'awaiting_payment'),
-    [needToKnow],
-  );
-  const worthWorkingOn = useMemo(
-    () => needToKnow.filter((r) => r.category.key === 'coming_soon' || r.category.key === 'in_pipeline'),
-    [needToKnow],
-  );
+  const { inPipeline, needAttention, comingSoon } = groups;
+  const totalRows = inPipeline.length + needAttention.length + comingSoon.length;
 
   // ---------- Commission rollup for current year, quarterly ----------
 
@@ -171,15 +191,15 @@ const Dashboard: React.FC = () => {
   }, [events, CURRENT_YEAR]);
 
   const kpis = useMemo(() => {
-    let paid = 0, pendingInvoice = 0, bookedNotInvoiced = 0, inPipeline = 0, total = 0;
+    let paid = 0, pendingInvoice = 0, bookedNotInvoiced = 0, inPipelineAmt = 0, total = 0;
     for (const r of flatLines) {
       total += r.commission;
       if (r.stage === 'paid') paid += r.commission;
       else if (r.stage === 'invoiced') pendingInvoice += r.commission;
       else if (r.stage === 'booked') bookedNotInvoiced += r.commission;
-      else if (r.stage === 'tentative' || r.stage === 'prospect') inPipeline += r.commission;
+      else if (r.stage === 'tentative' || r.stage === 'prospect') inPipelineAmt += r.commission;
     }
-    return { paid, pendingInvoice, bookedNotInvoiced, inPipeline, total };
+    return { paid, pendingInvoice, bookedNotInvoiced, inPipeline: inPipelineAmt, total };
   }, [flatLines]);
 
   const chartData = useMemo(() => {
@@ -207,7 +227,7 @@ const Dashboard: React.FC = () => {
         <p className="text-gray-600 text-sm">Here's what needs your attention.</p>
       </div>
 
-      {/* ===== Events: need-to-know ===== */}
+      {/* ===== Bookings: need-to-know ===== */}
       <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <header className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
           <button
@@ -219,26 +239,34 @@ const Dashboard: React.FC = () => {
               fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
-            <h3 className="text-base font-semibold text-gray-900">Events</h3>
+            <h3 className="text-base font-semibold text-gray-900">Bookings</h3>
             {!loading && (
               <span className="text-xs text-gray-500 ml-1">
-                {needAttention.length} need attention · {worthWorkingOn.length} to keep an eye on
+                {inPipeline.length} in pipeline · {needAttention.length} need attention · {comingSoon.length} coming soon
               </span>
             )}
           </button>
           <button onClick={() => navigate('/commissions/list')} className="text-sm text-blue-600 hover:underline">
-            See all events →
+            See all bookings →
           </button>
         </header>
         {eventsOpen && (
           <div>
             {loading ? (
               <p className="px-5 py-6 text-center text-sm text-gray-500">Loading…</p>
-            ) : needToKnow.length === 0 ? (
-              <p className="px-5 py-6 text-center text-sm text-gray-500">All clear — no events flagged.</p>
+            ) : totalRows === 0 ? (
+              <p className="px-5 py-6 text-center text-sm text-gray-500">All clear — no bookings flagged.</p>
             ) : (
               <>
                 <EventGroup
+                  title="In Pipeline"
+                  subtitle="Prospect · Tentative"
+                  tone="yellow"
+                  rows={inPipeline}
+                  emptyText="Nothing in the pipeline."
+                  onRowClick={(eventId) => navigate(`/commissions/${eventId}`)}
+                />
+                <LineGroup
                   title="Need attention"
                   subtitle="Needs Invoice · Awaiting Payment"
                   tone="red"
@@ -247,11 +275,11 @@ const Dashboard: React.FC = () => {
                   onRowClick={(eventId) => navigate(`/commissions/${eventId}`)}
                 />
                 <EventGroup
-                  title="Keep your eye on"
-                  subtitle="Coming Soon · In Pipeline"
+                  title="Coming Soon"
+                  subtitle="Arriving in the next 30 days"
                   tone="green"
-                  rows={worthWorkingOn}
-                  emptyText="Pipeline is empty."
+                  rows={comingSoon}
+                  emptyText="Nothing arriving soon."
                   onRowClick={(eventId) => navigate(`/commissions/${eventId}`)}
                 />
               </>
@@ -319,28 +347,44 @@ const Th: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   </th>
 );
 
+type Tone = 'red' | 'green' | 'yellow';
+
+const TONE_BANNER: Record<Tone, string> = {
+  red: 'bg-red-50 text-red-900 border-y border-red-200',
+  green: 'bg-emerald-50 text-emerald-900 border-y border-emerald-200',
+  yellow: 'bg-yellow-50 text-yellow-900 border-y border-yellow-200',
+};
+
+const GroupHeader: React.FC<{ title: string; subtitle: string; tone: Tone; count: number }> = ({
+  title, subtitle, tone, count,
+}) => (
+  <div className={`px-5 py-2.5 flex items-baseline gap-2 ${TONE_BANNER[tone]}`}>
+    <h4 className="text-xs font-semibold uppercase tracking-wider">{title}</h4>
+    <span className="text-[11px] opacity-75">{subtitle}</span>
+    <span className="ml-auto text-[11px] opacity-75">
+      {count} {count === 1 ? 'item' : 'items'}
+    </span>
+  </div>
+);
+
 interface EventGroupProps {
   title: string;
   subtitle: string;
-  tone: 'red' | 'green';
-  rows: { category: typeof CATEGORY_DEF[number]; event: CommissionEventWithLineItems }[];
+  tone: Tone;
+  rows: EventRow[];
   emptyText: string;
   onRowClick: (eventId: string) => void;
 }
 
-const TONE_BANNER: Record<EventGroupProps['tone'], string> = {
-  red: 'bg-red-50 text-red-900 border-y border-red-200',
-  green: 'bg-emerald-50 text-emerald-900 border-y border-emerald-200',
-};
-
-// Shared column widths so the two grouped tables line up.
-const EventCols: React.FC = () => (
+// Shared column widths so In Pipeline / Need attention / Coming Soon line up.
+const SharedCols: React.FC = () => (
   <colgroup>
     <col style={{ width: '160px' }} />
     <col />
     <col style={{ width: '200px' }} />
     <col style={{ width: '110px' }} />
     <col style={{ width: '110px' }} />
+    <col style={{ width: '180px' }} />
   </colgroup>
 );
 
@@ -348,33 +392,28 @@ const EventGroup: React.FC<EventGroupProps> = ({
   title, subtitle, tone, rows, emptyText, onRowClick,
 }) => (
   <div className="border-b border-gray-100 last:border-b-0">
-    <div className={`px-5 py-2.5 flex items-baseline gap-2 ${TONE_BANNER[tone]}`}>
-      <h4 className="text-xs font-semibold uppercase tracking-wider">{title}</h4>
-      <span className="text-[11px] opacity-75">{subtitle}</span>
-      <span className="ml-auto text-[11px] opacity-75">
-        {rows.length} {rows.length === 1 ? 'item' : 'items'}
-      </span>
-    </div>
+    <GroupHeader title={title} subtitle={subtitle} tone={tone} count={rows.length} />
     {rows.length === 0 ? (
       <p className="px-5 py-4 text-center text-sm text-gray-500">{emptyText}</p>
     ) : (
       <table className="min-w-full table-fixed divide-y divide-gray-200 text-sm">
-        <EventCols />
+        <SharedCols />
         <thead className="bg-white">
           <tr>
-            <Th>Category</Th>
+            <Th>Status</Th>
             <Th>Meeting</Th>
-            <Th>Location</Th>
+            <Th> </Th>
             <Th>Start</Th>
             <Th>End</Th>
+            <Th>Location</Th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
-          {rows.map(({ category, event }, i) => (
-            <tr key={`${event.id}-${category.key}-${i}`} className="hover:bg-gray-50">
+          {rows.map(({ badge, event }, i) => (
+            <tr key={`${event.id}-${badge.label}-${i}`} className="hover:bg-gray-50">
               <td className="px-3 py-2">
-                <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${category.bg} ${category.text}`}>
-                  {category.label}
+                <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${badge.bg} ${badge.text}`}>
+                  {badge.label}
                 </span>
               </td>
               <td className="px-3 py-2">
@@ -391,11 +430,78 @@ const EventGroup: React.FC<EventGroupProps> = ({
                   </div>
                 )}
               </td>
+              <td className="px-3 py-2" />
+              <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(event.arrival_date)}</td>
+              <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(event.depart_date)}</td>
               <td className="px-3 py-2 text-gray-700 truncate" title={eventLocation(event)}>
                 {eventLocation(event) || '—'}
               </td>
-              <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(event.arrival_date)}</td>
-              <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(event.depart_date)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )}
+  </div>
+);
+
+interface LineGroupProps {
+  title: string;
+  subtitle: string;
+  tone: Tone;
+  rows: LineRow[];
+  emptyText: string;
+  onRowClick: (eventId: string) => void;
+}
+
+const LineGroup: React.FC<LineGroupProps> = ({
+  title, subtitle, tone, rows, emptyText, onRowClick,
+}) => (
+  <div className="border-b border-gray-100 last:border-b-0">
+    <GroupHeader title={title} subtitle={subtitle} tone={tone} count={rows.length} />
+    {rows.length === 0 ? (
+      <p className="px-5 py-4 text-center text-sm text-gray-500">{emptyText}</p>
+    ) : (
+      <table className="min-w-full table-fixed divide-y divide-gray-200 text-sm">
+        <SharedCols />
+        <thead className="bg-white">
+          <tr>
+            <Th>Status</Th>
+            <Th>Meeting</Th>
+            <Th>Line</Th>
+            <Th>Start</Th>
+            <Th>End</Th>
+            <Th>Detail</Th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {rows.map(({ badge, event, line, detail }, i) => (
+            <tr key={`${event.id}-${line.id}-${badge.label}-${i}`} className="hover:bg-gray-50">
+              <td className="px-3 py-2">
+                <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${badge.bg} ${badge.text}`}>
+                  {badge.label}
+                </span>
+              </td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => onRowClick(event.id)}
+                  className="text-blue-700 hover:underline font-medium text-left truncate block max-w-full"
+                  title={event.meeting_name}
+                >
+                  {event.meeting_name}
+                </button>
+                {event.client_company_name && (
+                  <div className="text-xs text-gray-500 truncate" title={event.client_company_name}>
+                    {event.client_company_name}
+                  </div>
+                )}
+              </td>
+              <td className="px-3 py-2 text-gray-700 truncate" title={`${line.line_type.toUpperCase()} · ${line.company_name}`}>
+                <span className="font-medium uppercase tracking-wider text-[10px] text-gray-500 mr-1">{line.line_type}</span>
+                {line.company_name}
+              </td>
+              <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(line.arrival_date)}</td>
+              <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(line.depart_date)}</td>
+              <td className="px-3 py-2 text-gray-700 whitespace-nowrap text-xs">{detail}</td>
             </tr>
           ))}
         </tbody>

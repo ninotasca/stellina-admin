@@ -205,7 +205,7 @@ const CommissionForm: React.FC = () => {
           ev.line_items.length === 0 ? [] : ev.line_items.map((li) => liToDraft(li, ev.arrival_date, ev.depart_date))
         );
       } catch (err: any) {
-        setError(err.response?.data?.detail || 'Failed to load event');
+        setError(err.response?.data?.detail || 'Failed to load booking');
       } finally {
         setLoading(false);
       }
@@ -631,13 +631,13 @@ const CommissionForm: React.FC = () => {
               onClick={() => id && navigate(`/commissions/${id}`)}
               className="hover:text-gray-900 hover:underline truncate"
             >
-              {meetingName || 'Event'}
+              {meetingName || 'Booking'}
             </button>
             <span className="text-gray-300">/</span>
             <span className="text-gray-700 font-medium">Edit</span>
           </nav>
         ) : (
-          <h1 className="text-2xl font-bold text-gray-900">New Event</h1>
+          <h1 className="text-2xl font-bold text-gray-900">New Booking</h1>
         )}
       </div>
 
@@ -884,12 +884,12 @@ const CommissionForm: React.FC = () => {
 
           {/* ===== Event Notes ===== */}
           <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">Event Notes</h2>
+            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">Booking Notes</h2>
             <NoteFeed
               notes={eventNotes}
               enabled={true}
               placeholder="What just happened with this deal?"
-              emptyHint={id ? 'No notes yet \u2014 add the first.' : 'No notes yet \u2014 they\u2019ll save when you create the event.'}
+              emptyHint={id ? 'No notes yet \u2014 add the first.' : 'No notes yet \u2014 they\u2019ll save when you create the booking.'}
               onAdd={handleAddEventNote}
               onEdit={handleEditEventNote}
               onDelete={handleDeleteEventNote}
@@ -904,7 +904,7 @@ const CommissionForm: React.FC = () => {
             <button type="button" onClick={() => navigate('/commissions')} className="px-4 py-2 border border-gray-300 rounded-md bg-white text-gray-700 hover:bg-gray-50">Cancel</button>
             <button type="submit" disabled={saving}
               className="px-5 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">
-              {saving ? 'Saving…' : editing ? 'Save Changes' : 'Create Event'}
+              {saving ? 'Saving…' : editing ? 'Save Changes' : 'Create Booking'}
             </button>
           </div>
         </div>
@@ -1383,7 +1383,7 @@ const LineItemCard: React.FC<LineItemCardProps> = ({
             <NoteFeed
               notes={notes}
               enabled={!!li._id}
-              disabledHint="Save the event first, then come back to add notes for this line item."
+              disabledHint="Save the booking first, then come back to add notes for this line item."
               placeholder={`Note for this ${li.line_type} line…`}
               emptyHint="No notes on this line item yet."
               onAdd={onAddNote}
@@ -1492,7 +1492,7 @@ const DateInheritedInput: React.FC<{
       <input type="date" value={value || ''} onChange={(e) => onValueChange(e.target.value || null)}
         className="flex-1 px-2 py-1.5 border border-amber-300 bg-amber-50 rounded text-sm" />
       <button type="button" onClick={() => onToggleOverride(false)}
-        className="text-[11px] text-gray-500 hover:underline whitespace-nowrap">Use event</button>
+        className="text-[11px] text-gray-500 hover:underline whitespace-nowrap">Use booking</button>
     </div>
   );
 };

@@ -401,7 +401,7 @@ const CommissionList: React.FC = () => {
         total,
       ];
     });
-    downloadCSV(timestampedFilename('events'),
+    downloadCSV(timestampedFilename('bookings'),
       ['Meeting', 'Company', 'Status', 'Location', 'Start', 'End', 'Line Types', 'Line Count', 'Payment', 'Total Commission'],
       rows);
   };
@@ -436,7 +436,7 @@ const CommissionList: React.FC = () => {
   const handleDelete = async (id: string, name: string) => {
     if (!window.confirm(`Delete "${name}" and all its line items?`)) return;
     try { await commissionApi.deleteEvent(id); load(); }
-    catch (err: any) { alert(err.response?.data?.detail || 'Failed to delete event'); }
+    catch (err: any) { alert(err.response?.data?.detail || 'Failed to delete booking'); }
   };
 
   const toggleEvent = (id: string) => {
@@ -454,12 +454,12 @@ const CommissionList: React.FC = () => {
   return (
     <div>
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 flex flex-wrap justify-between items-center gap-3">
-        <h1 className="text-2xl font-bold text-gray-900">Events</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Bookings</h1>
         <button
           onClick={() => navigate('/commissions/new')}
           className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
         >
-          + New Event
+          + New Booking
         </button>
       </div>
 
@@ -475,7 +475,7 @@ const CommissionList: React.FC = () => {
                   onClick={() => setView(v)}
                   className={`px-3 py-1.5 text-sm ${view === v ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-50'}`}
                 >
-                  {v === 'events' ? 'Events' : v === 'lines' ? 'Lines' : 'Expanded'}
+                  {v === 'events' ? 'Bookings' : v === 'lines' ? 'Lines' : 'Expanded'}
                 </button>
               ))}
             </div>
@@ -609,7 +609,7 @@ const EventsView: React.FC<{
   onDelete: (id: string, name: string) => void;
 }> = ({ sortedEvents, sort, onSort, openEvents, onToggleEvent, onNavigateEvent, onDelete }) => {
   if (sortedEvents.length === 0) {
-    return <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center text-gray-500">No events match these filters.</div>;
+    return <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center text-gray-500">No bookings match these filters.</div>;
   }
   return (
     <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -619,9 +619,9 @@ const EventsView: React.FC<{
             <tr>
               <SortHeader active={sort.key === 'meeting'} dir={sort.dir} onClick={() => onSort('meeting')}>Meeting</SortHeader>
               <SortHeader active={sort.key === 'status'} dir={sort.dir} onClick={() => onSort('status')}>Status</SortHeader>
-              <SortHeader active={sort.key === 'location'} dir={sort.dir} onClick={() => onSort('location')}>Location</SortHeader>
               <SortHeader active={sort.key === 'start'} dir={sort.dir} onClick={() => onSort('start')}>Start</SortHeader>
               <SortHeader active={sort.key === 'end'} dir={sort.dir} onClick={() => onSort('end')}>End</SortHeader>
+              <SortHeader active={sort.key === 'location'} dir={sort.dir} onClick={() => onSort('location')}>Location</SortHeader>
               <SortHeader active={sort.key === 'lineCount'} dir={sort.dir} onClick={() => onSort('lineCount')}>Lines</SortHeader>
               <SortHeader active={sort.key === 'payment'} dir={sort.dir} onClick={() => onSort('payment')}>Payment</SortHeader>
               <SortHeader right active={sort.key === 'total'} dir={sort.dir} onClick={() => onSort('total')}>Total</SortHeader>
@@ -660,9 +660,9 @@ const EventsView: React.FC<{
                         {ev.booking_status.replace('_', ' ')}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-gray-700">{eventLocation(ev) || '—'}</td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(ev.arrival_date) || '—'}</td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(ev.depart_date) || '—'}</td>
+                    <td className="px-3 py-2 text-gray-700">{eventLocation(ev) || '—'}</td>
                     <td className="px-3 py-2">
                       <div className="flex gap-1 flex-wrap">
                         {types.map((t) => (
