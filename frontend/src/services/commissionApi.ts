@@ -7,6 +7,10 @@ import type {
   CommissionLineItem,
   CommissionLineItemCreate,
   CommissionNote,
+  CommissionPoints,
+  CommissionPointsCreate,
+  CommissionPointsRow,
+  CommissionPointsUpdate,
   HotelConsidered,
   HotelConsideredCreate,
   HotelConsideredUpdate,
@@ -106,6 +110,27 @@ export const commissionApi = {
   },
   deleteNote: async (noteId: string): Promise<void> => {
     await apiClient.delete(`/commissions/notes/${noteId}`);
+  },
+
+  // Points (rewards / loyalty)
+  listAllPoints: async (): Promise<CommissionPointsRow[]> => {
+    const res = await apiClient.get('/commissions/points');
+    return res.data;
+  },
+  listEventPoints: async (eventId: string): Promise<CommissionPoints[]> => {
+    const res = await apiClient.get(`/commissions/events/${eventId}/points`);
+    return res.data;
+  },
+  addPoint: async (eventId: string, payload: CommissionPointsCreate): Promise<CommissionPoints> => {
+    const res = await apiClient.post(`/commissions/events/${eventId}/points`, payload);
+    return res.data;
+  },
+  updatePoint: async (pointId: string, payload: CommissionPointsUpdate): Promise<CommissionPoints> => {
+    const res = await apiClient.put(`/commissions/points/${pointId}`, payload);
+    return res.data;
+  },
+  deletePoint: async (pointId: string): Promise<void> => {
+    await apiClient.delete(`/commissions/points/${pointId}`);
   },
 
   // Line items

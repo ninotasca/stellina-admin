@@ -15,6 +15,8 @@ import type {
   CommissionLineItem,
   CommissionLineItemCreate,
   CommissionNote,
+  CommissionPoints,
+  CommissionPointsUpdate,
   ConsiderationType,
   HotelConsidered,
   HotelConsideredUpdate,
@@ -600,6 +602,32 @@ const CommissionView: React.FC = () => {
             </div>
           )}
         </section>
+
+        {/* Points */}
+        {event.can_earn_points && (
+          <PointsModule
+            points={event.points || []}
+            onAdd={async () => {
+              const created = await commissionApi.addPoint(event.id, { point_type: '', points: null, received: false });
+              setEvent((prev) => prev ? { ...prev, points: [...(prev.points || []), created] } : prev);
+            }}
+            onUpdate={async (pointId, patch) => {
+              const updated = await commissionApi.updatePoint(pointId, patch);
+              setEvent((prev) => prev ? {
+                ...prev,
+                points: (prev.points || []).map((p) => p.id === pointId ? updated : p),
+              } : prev);
+            }}
+            onRemove={async (pointId) => {
+              if (!window.confirm('Delete this points entry?')) return;
+              await commissionApi.deletePoint(pointId);
+              setEvent((prev) => prev ? {
+                ...prev,
+                points: (prev.points || []).filter((p) => p.id !== pointId),
+              } : prev);
+            }}
+          />
+        )}
 
         {/* Event Notes */}
         <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -1891,5 +1919,125 @@ const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, 
     {children}
   </div>
 );
+
+// ---------- Points module (inline-editable) ----------
+
+interface PointsModuleProps {
+  points: CommissionPoints[];
+  onAdd: () => Promise<void>;
+  onUpdate: (pointId: string, patch: CommissionPointsUpdate) => Promise<void>;
+  onRemove: (pointId: string) => Promise<void>;
+}
+
+const PointsModule: React.FC<PointsModuleProps> = ({ points, onAdd, onUpdate, onRemove }) => {
+  const [adding, setAdding] = useState(false);
+  const handleAdd = async () => {
+    if (adding) return;
+    setAdding(true);
+    try { await onAdd(); }
+    finally { setAdding(false); }
+  };
+  return (
+    <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+          Points ({points.length})
+        </h2>
+        <button
+          type="button"
+          onClick={handleAdd}
+          disabled={adding}
+          className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+        >
+          {adding ? 'Adding…' : '+ Add Points Entry'}
+        </button>
+      </div>
+      {points.length === 0 ? (
+        <p className="text-xs text-gray-500 italic">No points entries yet. Click "Add Points Entry" to track rewards earned from this booking.</p>
+      ) : (
+        <div className="space-y-2">
+          <div className="grid grid-cols-12 gap-2 text-[10px] uppercase tracking-wider text-gray-500 font-semibold px-1">
+            <div className="col-span-5">Type of Points</div>
+            <div className="col-span-3">Number of Points</div>
+            <div className="col-span-3">Received</div>
+            <div className="col-span-1" />
+          </div>
+          {points.map((p) => (
+            <PointRow key={p.id} point={p} onUpdate={onUpdate} onRemove={onRemove} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+};
+
+const PointRow: React.FC<{
+  point: CommissionPoints;
+  onUpdate: (pointId: string, patch: CommissionPointsUpdate) => Promise<void>;
+  onRemove: (pointId: string) => Promise<void>;
+}> = ({ point, onUpdate, onRemove }) => {
+  const [typeDraft, setTypeDraft] = useState(point.point_type || '');
+  const [pointsDraft, setPointsDraft] = useState<number | null>(point.points);
+
+  useEffect(() => { setTypeDraft(point.point_type || ''); }, [point.point_type]);
+  useEffect(() => { setPointsDraft(point.points); }, [point.points]);
+
+  const commitType = () => {
+    const next = typeDraft.trim();
+    if (next === (point.point_type || '')) return;
+    onUpdate(point.id, { point_type: next }).catch((err: any) => {
+      alert(err.response?.data?.detail || 'Failed to save');
+      setTypeDraft(point.point_type || '');
+    });
+  };
+
+  const commitPoints = () => {
+    if (pointsDraft === point.points) return;
+    onUpdate(point.id, { points: pointsDraft }).catch((err: any) => {
+      alert(err.response?.data?.detail || 'Failed to save');
+      setPointsDraft(point.points);
+    });
+  };
+
+  return (
+    <div className="grid grid-cols-12 gap-2 items-center">
+      <input
+        type="text"
+        value={typeDraft}
+        onChange={(e) => setTypeDraft(e.target.value)}
+        onBlur={commitType}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+        placeholder="e.g. Marriott Bonvoy"
+        className="col-span-5 px-3 py-2 border border-gray-300 rounded-md text-sm"
+      />
+      <input
+        type="number"
+        min={0}
+        value={pointsDraft ?? ''}
+        onChange={(e) => setPointsDraft(e.target.value === '' ? null : Number(e.target.value))}
+        onBlur={commitPoints}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+        placeholder="0"
+        className="col-span-3 px-3 py-2 border border-gray-300 rounded-md text-sm tabular-nums"
+      />
+      <select
+        value={point.received ? 'yes' : 'no'}
+        onChange={(e) => onUpdate(point.id, { received: e.target.value === 'yes' })}
+        className="col-span-3 px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+      >
+        <option value="no">No</option>
+        <option value="yes">Yes</option>
+      </select>
+      <button
+        type="button"
+        onClick={() => onRemove(point.id)}
+        className="col-span-1 text-gray-400 hover:text-red-600 text-xs justify-self-center"
+        title="Remove"
+      >
+        ✕
+      </button>
+    </div>
+  );
+};
 
 export default CommissionView;

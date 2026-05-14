@@ -102,14 +102,44 @@ export interface CommissionEvent {
   considerations: ConsiderationType[];
   peak_rooms: number | null;
   total_room_nights: number | null;
+  can_earn_points: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface CommissionPoints {
+  id: string;
+  event_id: string;
+  point_type: string;
+  points: number | null;
+  received: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CommissionPointsCreate {
+  point_type?: string;
+  points?: number | null;
+  received?: boolean;
+}
+
+export interface CommissionPointsUpdate {
+  point_type?: string;
+  points?: number | null;
+  received?: boolean;
+}
+
+export interface CommissionPointsRow extends CommissionPoints {
+  event_meeting_name: string;
+  event_arrival_date: string | null;
+  event_depart_date: string | null;
 }
 
 export interface CommissionEventWithLineItems extends CommissionEvent {
   line_items: CommissionLineItem[];
   hotels_considered: HotelConsidered[];
   event_notes: CommissionNote[];
+  points: CommissionPoints[];
 }
 
 export interface CommissionEventCreate {
@@ -129,6 +159,7 @@ export interface CommissionEventCreate {
   considerations?: ConsiderationType[];
   peak_rooms?: number | null;
   total_room_nights?: number | null;
+  can_earn_points?: boolean;
   line_items?: CommissionLineItemCreate[];
 }
 
@@ -149,6 +180,7 @@ export interface CommissionEventUpdate {
   considerations?: ConsiderationType[];
   peak_rooms?: number | null;
   total_room_nights?: number | null;
+  can_earn_points?: boolean;
 }
 
 export interface ProjectionBucket {

@@ -433,12 +433,6 @@ const CommissionList: React.FC = () => {
 
   // ---------- Other handlers ----------
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!window.confirm(`Delete "${name}" and all its line items?`)) return;
-    try { await commissionApi.deleteEvent(id); load(); }
-    catch (err: any) { alert(err.response?.data?.detail || 'Failed to delete booking'); }
-  };
-
   const toggleEvent = (id: string) => {
     setOpenEvents((prev) => {
       const next = new Set(prev);
@@ -556,7 +550,6 @@ const CommissionList: React.FC = () => {
             openEvents={openEvents}
             onToggleEvent={toggleEvent}
             onNavigateEvent={(id) => navigate(`/commissions/${id}`)}
-            onDelete={handleDelete}
           />
         ) : view === 'lines' ? (
           <LinesView
@@ -606,8 +599,7 @@ const EventsView: React.FC<{
   openEvents: Set<string>;
   onToggleEvent: (id: string) => void;
   onNavigateEvent: (id: string) => void;
-  onDelete: (id: string, name: string) => void;
-}> = ({ sortedEvents, sort, onSort, openEvents, onToggleEvent, onNavigateEvent, onDelete }) => {
+}> = ({ sortedEvents, sort, onSort, openEvents, onToggleEvent, onNavigateEvent }) => {
   if (sortedEvents.length === 0) {
     return <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center text-gray-500">No bookings match these filters.</div>;
   }
@@ -625,7 +617,6 @@ const EventsView: React.FC<{
               <SortHeader active={sort.key === 'lineCount'} dir={sort.dir} onClick={() => onSort('lineCount')}>Lines</SortHeader>
               <SortHeader active={sort.key === 'payment'} dir={sort.dir} onClick={() => onSort('payment')}>Payment</SortHeader>
               <SortHeader right active={sort.key === 'total'} dir={sort.dir} onClick={() => onSort('total')}>Total</SortHeader>
-              <th className="px-3 py-2" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
@@ -675,16 +666,10 @@ const EventsView: React.FC<{
                       <PaymentRollupCell rollup={r} />
                     </td>
                     <td className="px-3 py-2 text-right font-medium tabular-nums">{fmtMoney(total) || '—'}</td>
-                    <td className="px-3 py-2 text-right whitespace-nowrap">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onDelete(ev.id, ev.meeting_name); }}
-                        className="text-xs text-gray-400 hover:text-red-600"
-                      >Delete</button>
-                    </td>
                   </tr>
                   {open && (
                     <tr className="bg-gray-50/60">
-                      <td colSpan={9} className="px-0 py-0">
+                      <td colSpan={8} className="px-0 py-0">
                         <div className="px-6 py-3 border-y border-gray-200 bg-gray-50/60">
                           <table className="min-w-full text-xs">
                             <thead>

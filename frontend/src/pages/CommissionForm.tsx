@@ -99,6 +99,20 @@ const blankLineItem = (lineType: LineType = 'hotel'): DraftLineItem => ({
   paid_date: null,
 });
 
+interface DraftPoint {
+  _id?: string;
+  _persisted?: boolean;
+  point_type: string;
+  points: number | null;
+  received: boolean;
+}
+
+const blankPoint = (): DraftPoint => ({
+  point_type: '',
+  points: null,
+  received: false,
+});
+
 const lineItemHasData = (li: DraftLineItem): boolean => {
   if (li._persisted) return true;
   return Boolean(
@@ -151,6 +165,10 @@ const CommissionForm: React.FC = () => {
 
   const [lineItems, setLineItems] = useState<DraftLineItem[]>([]);
 
+  // Points (rewards / loyalty) — owner flag + per-entry rows
+  const [canEarnPoints, setCanEarnPoints] = useState(false);
+  const [pointsList, setPointsList] = useState<DraftPoint[]>([]);
+
   // Server-only data (only meaningful for persisted events)
   const [hotelsConsidered, setHotelsConsidered] = useState<HotelConsidered[]>([]);
   const [eventNotes, setEventNotes] = useState<CommissionNote[]>([]);
@@ -175,6 +193,26 @@ const CommissionForm: React.FC = () => {
   const priorBookingStatusRef = useRef<BookingStatus | null>(null);
   const [interstitial, setInterstitial] =
     useState<{ variant: InterstitialVariant; targetEventId: string } | null>(null);
+
+  // Delete-booking confirmation modal
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteText, setDeleteText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const handleDeleteBooking = async () => {
+    if (!editing || !id) return;
+    if (deleteText !== 'DELETE ME') return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await commissionApi.deleteEvent(id);
+      navigate('/commissions/list');
+    } catch (err: any) {
+      setDeleteError(err.response?.data?.detail || 'Failed to delete booking');
+      setDeleting(false);
+    }
+  };
 
   // ---------- Load event ----------
 
@@ -204,6 +242,13 @@ const CommissionForm: React.FC = () => {
         setLineItems(
           ev.line_items.length === 0 ? [] : ev.line_items.map((li) => liToDraft(li, ev.arrival_date, ev.depart_date))
         );
+        setCanEarnPoints(!!ev.can_earn_points);
+        setPointsList((ev.points || []).map((p) => ({
+          _id: p.id, _persisted: true,
+          point_type: p.point_type || '',
+          points: p.points,
+          received: p.received,
+        })));
       } catch (err: any) {
         setError(err.response?.data?.detail || 'Failed to load booking');
       } finally {
@@ -453,6 +498,25 @@ const CommissionForm: React.FC = () => {
     setLineItems((prev) => prev.filter((_, i) => i !== idx));
   };
 
+  // ---------- Points handlers ----------
+
+  const updatePoint = (idx: number, patch: Partial<DraftPoint>) => {
+    setPointsList((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)));
+  };
+
+  const addPointRow = () => setPointsList((prev) => [...prev, blankPoint()]);
+
+  const removePointRow = async (idx: number) => {
+    const p = pointsList[idx];
+    if (p._persisted && p._id) {
+      if (!window.confirm('Delete this points entry?')) return;
+      try { await commissionApi.deletePoint(p._id); } catch (err: any) {
+        alert(err.response?.data?.detail || 'Failed to delete'); return;
+      }
+    }
+    setPointsList((prev) => prev.filter((_, i) => i !== idx));
+  };
+
   // ---------- Destinations chip input ----------
 
   const commitDestination = () => {
@@ -515,7 +579,17 @@ const CommissionForm: React.FC = () => {
         primary_contact_id: contact.id,
         primary_contact_name: contact.name.trim() || null,
         primary_contact_email: contact.email || null,
+        can_earn_points: canEarnPoints,
       };
+
+      // Build points payload (only non-empty rows when can_earn_points is on)
+      const pointPayloads = canEarnPoints
+        ? pointsList.filter((p) => p.point_type.trim() || p.points != null || p.received).map((p) => ({
+            point_type: p.point_type.trim(),
+            points: p.points,
+            received: p.received,
+          }))
+        : [];
 
       const liPayloads: CommissionLineItemCreate[] = lineItems.map((li) => {
         const isHotel = li.line_type === 'hotel';
@@ -558,6 +632,10 @@ const CommissionForm: React.FC = () => {
         for (const n of pendingNotes) {
           await commissionApi.addEventNote(created.id, n.body);
         }
+        // Flush pending points
+        for (const p of pointPayloads) {
+          await commissionApi.addPoint(created.id, p);
+        }
         targetId = created.id;
       } else if (id) {
         await commissionApi.updateEvent(id, eventBody);
@@ -565,6 +643,16 @@ const CommissionForm: React.FC = () => {
           const payload = liPayloads[i];
           if (li._persisted && li._id) await commissionApi.updateLineItem(li._id, payload);
           else await commissionApi.addLineItem(id, payload);
+        }
+        // Sync points: update persisted, create new ones (deletes already happened inline)
+        if (canEarnPoints) {
+          for (const p of pointsList) {
+            const hasContent = p.point_type.trim() || p.points != null || p.received;
+            if (!hasContent) continue;
+            const payload = { point_type: p.point_type.trim(), points: p.points, received: p.received };
+            if (p._persisted && p._id) await commissionApi.updatePoint(p._id, payload);
+            else await commissionApi.addPoint(id, payload);
+          }
         }
         targetId = id;
       }
@@ -761,6 +849,22 @@ const CommissionForm: React.FC = () => {
             </div>
           </section>
 
+          {/* ===== Points eligibility flag ===== */}
+          <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={canEarnPoints}
+                onChange={(e) => setCanEarnPoints(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm font-medium text-gray-800">I can earn points</span>
+            </label>
+            {canEarnPoints && (
+              <p className="mt-1 text-xs text-gray-500 ml-6">Tracks rewards / loyalty points earned from this booking. Add entries in the Points section below.</p>
+            )}
+          </section>
+
           {/* ===== Company & Primary Contact ===== */}
           <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-4">
@@ -882,6 +986,69 @@ const CommissionForm: React.FC = () => {
             </div>
           </section>
 
+          {/* ===== Points ===== */}
+          {canEarnPoints && (
+            <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Points</h2>
+                <button
+                  type="button"
+                  onClick={addPointRow}
+                  className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                >
+                  + Add Points Entry
+                </button>
+              </div>
+              {pointsList.length === 0 ? (
+                <p className="text-xs text-gray-500 italic">No points entries yet. Click "Add Points Entry" to track rewards earned from this booking.</p>
+              ) : (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-12 gap-2 text-[10px] uppercase tracking-wider text-gray-500 font-semibold px-1">
+                    <div className="col-span-5">Type of Points</div>
+                    <div className="col-span-3">Number of Points</div>
+                    <div className="col-span-3">Received</div>
+                    <div className="col-span-1" />
+                  </div>
+                  {pointsList.map((p, i) => (
+                    <div key={p._id ?? `new-${i}`} className="grid grid-cols-12 gap-2 items-center">
+                      <input
+                        type="text"
+                        value={p.point_type}
+                        onChange={(e) => updatePoint(i, { point_type: e.target.value })}
+                        placeholder="e.g. Marriott Bonvoy"
+                        className="col-span-5 px-3 py-2 border border-gray-300 rounded-md text-sm"
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        value={p.points ?? ''}
+                        onChange={(e) => updatePoint(i, { points: e.target.value === '' ? null : Number(e.target.value) })}
+                        placeholder="0"
+                        className="col-span-3 px-3 py-2 border border-gray-300 rounded-md text-sm tabular-nums"
+                      />
+                      <select
+                        value={p.received ? 'yes' : 'no'}
+                        onChange={(e) => updatePoint(i, { received: e.target.value === 'yes' })}
+                        className="col-span-3 px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+                      >
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => removePointRow(i)}
+                        className="col-span-1 text-gray-400 hover:text-red-600 text-xs justify-self-center"
+                        title="Remove"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
           {/* ===== Event Notes ===== */}
           <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">Booking Notes</h2>
@@ -900,15 +1067,40 @@ const CommissionForm: React.FC = () => {
 
         {/* Full-width sticky save bar */}
         <div className="sticky bottom-0 bg-white border-t border-gray-200 z-10 shadow-[0_-4px_12px_-6px_rgba(0,0,0,0.08)]">
-          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-end gap-3">
-            <button type="button" onClick={() => navigate('/commissions')} className="px-4 py-2 border border-gray-300 rounded-md bg-white text-gray-700 hover:bg-gray-50">Cancel</button>
-            <button type="submit" disabled={saving}
-              className="px-5 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">
-              {saving ? 'Saving…' : editing ? 'Save Changes' : 'Create Booking'}
-            </button>
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center gap-3">
+            <div>
+              {editing && (
+                <button
+                  type="button"
+                  onClick={() => { setDeleteText(''); setDeleteError(null); setDeleteOpen(true); }}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
+                >
+                  Delete Entire Booking
+                </button>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => navigate('/commissions')} className="px-4 py-2 border border-gray-300 rounded-md bg-white text-gray-700 hover:bg-gray-50">Cancel</button>
+              <button type="submit" disabled={saving}
+                className="px-5 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">
+                {saving ? 'Saving…' : editing ? 'Save Changes' : 'Create Booking'}
+              </button>
+            </div>
           </div>
         </div>
       </form>
+
+      {deleteOpen && (
+        <DeleteBookingModal
+          meetingName={meetingName}
+          text={deleteText}
+          onTextChange={setDeleteText}
+          deleting={deleting}
+          error={deleteError}
+          onCancel={() => { if (!deleting) setDeleteOpen(false); }}
+          onConfirm={handleDeleteBooking}
+        />
+      )}
 
       {interstitial && (
         <StatusInterstitial
@@ -1524,5 +1716,67 @@ function liToDraft(li: CommissionLineItem, eventArrival: string | null, eventDep
     paid_date: li.paid_date,
   };
 }
+
+// ---------- Delete-booking confirmation modal ----------
+
+interface DeleteBookingModalProps {
+  meetingName: string;
+  text: string;
+  onTextChange: (v: string) => void;
+  deleting: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+const DELETE_CONFIRM_PHRASE = 'DELETE ME';
+
+const DeleteBookingModal: React.FC<DeleteBookingModalProps> = ({
+  meetingName, text, onTextChange, deleting, error, onCancel, onConfirm,
+}) => {
+  const canConfirm = text === DELETE_CONFIRM_PHRASE && !deleting;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+        <h2 className="text-lg font-semibold text-gray-900">Delete entire booking?</h2>
+        <p className="mt-2 text-sm text-gray-700">
+          This will permanently delete <strong>{meetingName || 'this booking'}</strong> and all of its
+          line items, hotels considered, and notes. This cannot be undone.
+        </p>
+        <p className="mt-4 text-sm text-gray-700">
+          To confirm, type <code className="px-1.5 py-0.5 bg-gray-100 rounded text-xs font-mono">{DELETE_CONFIRM_PHRASE}</code> below.
+        </p>
+        <input
+          autoFocus
+          type="text"
+          value={text}
+          onChange={(e) => onTextChange(e.target.value)}
+          disabled={deleting}
+          placeholder={DELETE_CONFIRM_PHRASE}
+          className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
+        />
+        {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
+        <div className="mt-5 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={deleting}
+            className="px-4 py-2 border border-gray-300 rounded-md bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={!canConfirm}
+            className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {deleting ? 'Deleting…' : 'Delete Booking'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default CommissionForm;

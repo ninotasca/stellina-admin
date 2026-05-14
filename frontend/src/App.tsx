@@ -17,6 +17,7 @@ import CommissionProjections from './pages/CommissionProjections';
 import CommissionDashboard from './pages/CommissionDashboard';
 import CommissionView from './pages/CommissionView';
 import NimblePage from './pages/NimblePage';
+import PointsTracker from './pages/PointsTracker';
 
 function App() {
   const adminShell = (
@@ -62,6 +63,7 @@ function App() {
             <Route path="/commissions/projections" element={<CommissionProjections />} />
 
             <Route path="/nimble" element={<NimblePage />} />
+            <Route path="/points" element={<PointsTracker />} />
           </Route>
 
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
