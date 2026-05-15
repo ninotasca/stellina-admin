@@ -603,6 +603,10 @@ const EventsView: React.FC<{
   if (sortedEvents.length === 0) {
     return <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center text-gray-500">No bookings match these filters.</div>;
   }
+  const grandTotal = sortedEvents.reduce(
+    (sum, { lines }) => sum + lines.reduce((s, l) => s + Number(l.commission_amount || 0), 0),
+    0,
+  );
   return (
     <div className="bg-white rounded-lg shadow overflow-hidden">
       <div className="overflow-x-auto">
@@ -714,6 +718,16 @@ const EventsView: React.FC<{
               );
             })}
           </tbody>
+          <tfoot className="bg-gray-50 border-t-2 border-gray-300">
+            <tr>
+              <td colSpan={7} className="px-3 py-2 text-right text-xs uppercase tracking-wider font-semibold text-gray-700">
+                Total ({sortedEvents.length} {sortedEvents.length === 1 ? 'booking' : 'bookings'})
+              </td>
+              <td className="px-3 py-2 text-right font-bold tabular-nums text-gray-900">
+                {fmtMoney(grandTotal) || '—'}
+              </td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>

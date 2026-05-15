@@ -79,6 +79,18 @@ function periodLabel(key: string, g: Grouping): string {
   return dt.toLocaleString('en-US', { month: 'short', year: '2-digit' });
 }
 
+// Years to render on the axis for "today forward": from CURRENT_YEAR through
+// the latest year present in the data (or just CURRENT_YEAR if nothing is
+// scheduled in the future).
+function forwardYears(currentYear: number, availableYears: number[]): number[] {
+  const maxYear = availableYears.length
+    ? Math.max(currentYear, ...availableYears)
+    : currentYear;
+  const out: number[] = [];
+  for (let y = currentYear; y <= maxYear; y++) out.push(y);
+  return out;
+}
+
 function buildPeriodAxis(years: number[], g: Grouping): string[] {
   const sorted = [...years].sort((a, b) => a - b);
   if (sorted.length === 0) return [];
@@ -168,15 +180,14 @@ const CommissionDashboard: React.FC = () => {
       if (!typeFilter.has(r.line_type)) return false;
       if (yearFilter === 'all') return true;
       if (!r.arrival_date) return false;
-      const y = new Date(r.arrival_date).getUTCFullYear();
       if (yearFilter === 'ytd_forward') {
-        if (y !== CURRENT_YEAR) return false;
-        if (r.arrival_date < todayIso) return false;
-        return true;
+        // Today onward, across every future year
+        return r.arrival_date >= todayIso;
       }
+      const y = new Date(r.arrival_date).getUTCFullYear();
       return y === yearFilter;
     });
-  }, [allRows, stageFilter, typeFilter, yearFilter, todayIso, CURRENT_YEAR]);
+  }, [allRows, stageFilter, typeFilter, yearFilter, todayIso]);
 
   // KPIs — all derived from visibleRows so they respect every active filter (year included)
   const kpis = useMemo(() => {
@@ -204,15 +215,19 @@ const CommissionDashboard: React.FC = () => {
       yearFilter === 'all'
         ? (availableYears.length ? availableYears : [])
         : yearFilter === 'ytd_forward'
-          ? [CURRENT_YEAR]
+          ? forwardYears(CURRENT_YEAR, availableYears)
           : [yearFilter];
-    const axis = buildPeriodAxis(yearsForAxis, grouping);
+    let axis = buildPeriodAxis(yearsForAxis, grouping);
+    if (yearFilter === 'ytd_forward') {
+      const fromKey = periodKey(todayIso, grouping);
+      axis = axis.filter((p) => p >= fromKey);
+    }
     return axis.map((p) => ({
       period: p,
       label: periodLabel(p, grouping),
       ...STAGE_ORDER.reduce<Record<string, number>>((acc, s) => { acc[s] = byPeriod.get(p)?.[s] || 0; return acc; }, {}),
     }));
-  }, [visibleRows, grouping, yearFilter, availableYears]);
+  }, [visibleRows, grouping, yearFilter, availableYears, CURRENT_YEAR, todayIso]);
 
   // Period rollup — one row per period (Paid / Invoiced / Booked / In Pipeline / Total)
   type PeriodRow = {
@@ -238,9 +253,13 @@ const CommissionDashboard: React.FC = () => {
       yearFilter === 'all'
         ? (availableYears.length ? availableYears : [])
         : yearFilter === 'ytd_forward'
-          ? [CURRENT_YEAR]
+          ? forwardYears(CURRENT_YEAR, availableYears)
           : [yearFilter];
-    const axis = buildPeriodAxis(yearsForAxis, grouping);
+    let axis = buildPeriodAxis(yearsForAxis, grouping);
+    if (yearFilter === 'ytd_forward') {
+      const fromKey = periodKey(todayIso, grouping);
+      axis = axis.filter((p) => p >= fromKey);
+    }
 
     const buildRow = (period: string, lines: FlatRow[]): PeriodRow => {
       let paid = 0, invoiced = 0, booked = 0, pipeline = 0;
@@ -265,7 +284,7 @@ const CommissionDashboard: React.FC = () => {
       rows.push(buildRow('Unscheduled', unscheduledLines));
     }
     return rows;
-  }, [visibleRows, grouping, yearFilter, availableYears, CURRENT_YEAR]);
+  }, [visibleRows, grouping, yearFilter, availableYears, CURRENT_YEAR, todayIso]);
 
   const grandTotals = useMemo(() => {
     return periodRollup.reduce(
@@ -332,7 +351,7 @@ const CommissionDashboard: React.FC = () => {
                     className="px-3 py-1.5 border border-gray-300 rounded-md text-sm"
                   >
                     <option value="all">All years</option>
-                    <option value="ytd_forward">{CURRENT_YEAR}, going forward</option>
+                    <option value="ytd_forward">Today forward (all future years)</option>
                     {availableYears.map((y) => <option key={y} value={y}>{y}</option>)}
                   </select>
                 </div>
