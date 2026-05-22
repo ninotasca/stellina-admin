@@ -1,8 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { EditorContent, useEditor } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import Link from '@tiptap/extension-link';
+import DOMPurify from 'isomorphic-dompurify';
 import {
   cventTrackerApi,
   type CventCell,
+  type CventCellPatch,
   type CventSheetWithCells,
   type CventUploadDetail,
 } from '../services/cventTrackerApi';
@@ -90,13 +95,16 @@ const masterCellStyle = (
     style.fontWeight = 600;
   }
 
-  // Preserve user-applied highlights — italic stays, and any non-black
-  // custom font color (e.g. Raffy's red on flagged dates) carries through.
   if (c) {
     if (c.font_italic) style.fontStyle = 'italic';
-    const fg = argbToCss(c.font_color);
-    if (fg && fg !== '#FF000000' && fg !== 'rgba(0, 0, 0, 1.000)') {
-      style.color = fg;
+    // Red flag wins over any other color.
+    if (c.is_red_flagged) {
+      style.color = '#dc2626';  // tailwind red-600
+    } else {
+      const fg = argbToCss(c.font_color);
+      if (fg && fg !== '#FF000000' && fg !== 'rgba(0, 0, 0, 1.000)') {
+        style.color = fg;
+      }
     }
   }
   return style;
@@ -232,7 +240,39 @@ const CventUploadView: React.FC = () => {
 
       {/* Grid */}
       <div className="flex-1 overflow-auto bg-white">
-        {activeSheet ? <SheetGrid sheet={activeSheet} mode={viewMode} /> : (
+        {activeSheet ? (
+          <SheetGrid
+            sheet={activeSheet}
+            mode={viewMode}
+            editable={upload.source === 'master'}
+            onCellSaved={(saved) => {
+              // Splice the updated cell back into local state so re-renders
+              // show the change without a full reload.
+              setUpload((prev) => {
+                if (!prev) return prev;
+                return {
+                  ...prev,
+                  sheets: prev.sheets.map((s) => {
+                    if (s.id !== activeSheet.id) return s;
+                    const others = s.cells.filter(
+                      (c) => !(c.row_idx === saved.row_idx && c.col_idx === saved.col_idx),
+                    );
+                    return {
+                      ...s,
+                      cells: [...others, saved],
+                      max_row: Math.max(s.max_row, saved.row_idx),
+                      max_col: Math.max(s.max_col, saved.col_idx),
+                      cell_count: others.length + 1,
+                    };
+                  }),
+                };
+              });
+            }}
+            saveCell={(rowIdx, colIdx, patch) =>
+              cventTrackerApi.patchCell(eventId!, upload.id, activeSheet.id, rowIdx, colIdx, patch)
+            }
+          />
+        ) : (
           <div className="p-8 text-sm text-gray-500">This upload has no sheets.</div>
         )}
       </div>
@@ -245,13 +285,22 @@ const CventUploadView: React.FC = () => {
 interface SheetGridProps {
   sheet: CventSheetWithCells;
   mode: ViewMode;
+  editable: boolean;
+  saveCell: (rowIdx: number, colIdx: number, patch: CventCellPatch) => Promise<CventCell>;
+  onCellSaved: (saved: CventCell) => void;
 }
 
 const ROW_HEADER_W = 48;   // px
 const CELL_MIN_W   = 120;  // px
 const CELL_MAX_W   = 320;  // px
 
-const SheetGrid: React.FC<SheetGridProps> = ({ sheet, mode }) => {
+const SheetGrid: React.FC<SheetGridProps> = ({ sheet, mode, editable, saveCell, onCellSaved }) => {
+  // Track which cell (if any) is currently in edit mode.
+  const [activeCell, setActiveCell] = useState<{ row: number; col: number } | null>(null);
+  // Extra blank rows added via the "+ Add row" button — purely local until
+  // the user actually types something into one (at which point the cell
+  // persists and bumps the sheet's max_row).
+  const [extraRows, setExtraRows] = useState(0);
   // Build a row × col lookup: cellMap[row][col] = CventCell
   const cellMap = useMemo(() => {
     const m = new Map<number, Map<number, CventCell>>();
@@ -263,10 +312,11 @@ const SheetGrid: React.FC<SheetGridProps> = ({ sheet, mode }) => {
     return m;
   }, [sheet]);
 
-  const rows = Math.max(sheet.max_row, 1);
+  const rows = Math.max(sheet.max_row + extraRows, 1);
   const cols = Math.max(sheet.max_col, 1);
 
   return (
+    <div>
     <table className="border-separate border-spacing-0 text-xs font-sans">
       <thead>
         <tr>
@@ -297,17 +347,43 @@ const SheetGrid: React.FC<SheetGridProps> = ({ sheet, mode }) => {
             </th>
             {Array.from({ length: cols }, (_, i) => i + 1).map((c) => {
               const cell = cellMap.get(r)?.get(c);
+              const isActive = editable && activeCell?.row === r && activeCell?.col === c;
+              const baseStyle: React.CSSProperties = {
+                minWidth: CELL_MIN_W,
+                maxWidth: CELL_MAX_W,
+                ...cellStyle(cell, r, c, sheet.kind, mode),
+              };
               return (
                 <td
                   key={c}
-                  className="border-r border-b border-gray-200 px-2 py-1 align-top whitespace-pre-wrap break-words"
-                  style={{
-                    minWidth: CELL_MIN_W,
-                    maxWidth: CELL_MAX_W,
-                    ...cellStyle(cell, r, c, sheet.kind, mode),
+                  className={`border-r border-b border-gray-200 px-2 py-1 align-top whitespace-pre-wrap break-words ${
+                    editable && !isActive ? 'cursor-text hover:outline hover:outline-1 hover:outline-blue-400' : ''
+                  } ${cell?.is_user_edited ? 'relative' : ''}`}
+                  style={baseStyle}
+                  onDoubleClick={() => {
+                    if (editable && !isActive) setActiveCell({ row: r, col: c });
                   }}
                 >
-                  {cell?.value ?? ''}
+                  {isActive ? (
+                    <EditableCell
+                      initial={cell}
+                      onSave={async (patch) => {
+                        const saved = await saveCell(r, c, patch);
+                        onCellSaved(saved);
+                      }}
+                      onExit={() => setActiveCell(null)}
+                    />
+                  ) : (
+                    <>
+                      <CellContent cell={cell} />
+                      {cell?.is_user_edited && (
+                        <span
+                          className="absolute top-0 right-0 w-1.5 h-1.5 bg-amber-500 rounded-bl"
+                          title="Edited"
+                        />
+                      )}
+                    </>
+                  )}
                 </td>
               );
             })}
@@ -315,7 +391,275 @@ const SheetGrid: React.FC<SheetGridProps> = ({ sheet, mode }) => {
         ))}
       </tbody>
     </table>
+    {editable && (
+      <div className="px-2 py-2 border-t border-gray-200 bg-gray-50 sticky bottom-0">
+        <button
+          type="button"
+          onClick={() => {
+            const newRow = sheet.max_row + extraRows + 1;
+            setExtraRows((n) => n + 1);
+            // Open the first cell of the new row for editing.
+            setTimeout(() => setActiveCell({ row: newRow, col: 1 }), 0);
+          }}
+          className="px-2.5 py-1 text-xs font-medium text-amber-700 bg-white border border-amber-300 rounded hover:bg-amber-100"
+        >
+          + Add row
+        </button>
+      </div>
+    )}
+    </div>
   );
 };
+
+// ---------- Cell render (read mode) ----------
+
+// Whitelist for DOMPurify — TipTap's StarterKit+Link emits these tags.
+const SANITIZE_CONFIG = {
+  ALLOWED_TAGS: ['p', 'strong', 'b', 'em', 'i', 'a', 'br', 'span'],
+  ALLOWED_ATTR: ['href', 'target', 'rel'],
+};
+
+const CellContent: React.FC<{ cell: CventCell | undefined }> = ({ cell }) => {
+  if (!cell) return null;
+  if (cell.value_html) {
+    const clean = DOMPurify.sanitize(cell.value_html, SANITIZE_CONFIG);
+    return <span dangerouslySetInnerHTML={{ __html: clean }} />;
+  }
+  if (cell.link_url && cell.value) {
+    return (
+      <a
+        href={cell.link_url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-blue-600 underline"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {cell.value}
+      </a>
+    );
+  }
+  return <>{cell.value ?? ''}</>;
+};
+
+// ---------- Editable cell (TipTap rich text) ----------
+
+interface EditableCellProps {
+  initial: CventCell | undefined;
+  onSave: (patch: CventCellPatch) => Promise<void>;
+  onExit: () => void;
+}
+
+const AUTOSAVE_MS = 600;
+
+// Treat empty/whitespace-only paragraphs as "no rich text" — that way
+// we don't store a stray `<p></p>` for plain-text cells.
+const isEmptyHtml = (html: string): boolean => {
+  const stripped = html.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, '').trim();
+  return stripped.length === 0;
+};
+
+// True when the HTML contains any inline formatting (bold/italic/link). If
+// not, we save just `value` and clear value_html — keeps the DB tidy.
+const hasFormatting = (html: string): boolean => /<(strong|b|em|i|a)\b/i.test(html);
+
+const EditableCell: React.FC<EditableCellProps> = ({ initial, onSave, onExit }) => {
+  const [redFlag, setRedFlag] = useState<boolean>(initial?.is_red_flagged ?? false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const timerRef = useRef<number | null>(null);
+  const exitingRef = useRef(false);
+
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        // Cell editing — strip block elements we don't want.
+        heading: false,
+        bulletList: false,
+        orderedList: false,
+        blockquote: false,
+        codeBlock: false,
+        horizontalRule: false,
+      }),
+      Link.configure({
+        openOnClick: false,
+        HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' },
+      }),
+    ],
+    content: initial?.value_html || initial?.value || '',
+    editorProps: {
+      attributes: {
+        class: 'outline-none min-h-[1.25rem]',
+      },
+    },
+    onUpdate: () => {
+      scheduleSave();
+    },
+  });
+
+  // Focus + select-all when the editor mounts.
+  useEffect(() => {
+    if (!editor) return;
+    editor.commands.focus('end');
+    editor.commands.selectAll();
+    return () => {
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    };
+  }, [editor]);
+
+  const buildPatch = useCallback((): CventCellPatch => {
+    if (!editor) return {};
+    const html = editor.getHTML();
+    const plain = editor.getText();
+    const formatted = !isEmptyHtml(html) && hasFormatting(html);
+    return {
+      value: plain,
+      value_html: formatted ? html : null,
+      is_red_flagged: redFlag,
+    };
+  }, [editor, redFlag]);
+
+  const flush = useCallback(async () => {
+    if (!editor) return;
+    const patch = buildPatch();
+    // No-op detection: skip the round-trip if nothing changed vs initial.
+    const initialPlain = initial?.value ?? '';
+    const initialHtml = initial?.value_html ?? null;
+    const initialFlag = initial?.is_red_flagged ?? false;
+    const unchanged =
+      patch.value === initialPlain &&
+      (patch.value_html ?? null) === initialHtml &&
+      patch.is_red_flagged === initialFlag;
+    if (unchanged) return;
+    setSaving(true);
+    try {
+      await onSave(patch);
+      setError(null);
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || e.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }, [editor, buildPatch, initial, onSave]);
+
+  const scheduleSave = useCallback(() => {
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => { void flush(); }, AUTOSAVE_MS);
+  }, [flush]);
+
+  // Toggling the red flag is an immediate save.
+  const toggleRedFlag = useCallback(() => {
+    setRedFlag((v) => !v);
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    // Defer one tick so the latest redFlag is in the closure.
+    setTimeout(() => { void flush(); }, 0);
+  }, [flush]);
+
+  const addOrEditLink = useCallback(() => {
+    if (!editor) return;
+    const current = editor.getAttributes('link').href as string | undefined;
+    const url = window.prompt('Link URL (leave blank to remove):', current ?? '');
+    if (url === null) return; // canceled
+    if (url === '') {
+      editor.chain().focus().unsetLink().run();
+    } else {
+      editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+    }
+    scheduleSave();
+  }, [editor, scheduleSave]);
+
+  if (!editor) return null;
+
+  return (
+    <div className="relative -mx-2 -my-1">
+      {/* Floating toolbar */}
+      <div
+        className="absolute -top-9 left-0 z-40 flex gap-0.5 bg-white border border-gray-300 rounded shadow px-1 py-0.5"
+        onMouseDown={(e) => e.preventDefault()}  // keep focus on editor
+      >
+        <ToolbarBtn
+          active={editor.isActive('bold')}
+          onClick={() => { editor.chain().focus().toggleBold().run(); scheduleSave(); }}
+          title="Bold (Cmd/Ctrl+B)"
+        ><strong>B</strong></ToolbarBtn>
+        <ToolbarBtn
+          active={editor.isActive('italic')}
+          onClick={() => { editor.chain().focus().toggleItalic().run(); scheduleSave(); }}
+          title="Italic (Cmd/Ctrl+I)"
+        ><em>I</em></ToolbarBtn>
+        <ToolbarBtn
+          active={editor.isActive('link')}
+          onClick={addOrEditLink}
+          title="Add / edit link"
+        >🔗</ToolbarBtn>
+        <span className="mx-1 border-r border-gray-200" />
+        <ToolbarBtn
+          active={redFlag}
+          onClick={toggleRedFlag}
+          title="Flag this value (turns text red)"
+        >
+          <span className={redFlag ? 'text-red-600' : 'text-gray-600'}>⚑</span>
+        </ToolbarBtn>
+      </div>
+
+      <div
+        className={`px-2 py-1 outline-none ring-2 ring-blue-500 ring-inset bg-white ${
+          redFlag ? 'text-red-600' : ''
+        }`}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+            exitingRef.current = true;
+            onExit();
+          } else if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+            exitingRef.current = true;
+            void flush().then(onExit);
+          }
+        }}
+        onBlur={async (e) => {
+          // Ignore blurs that go to the toolbar (we mousedown-prevent-default
+          // there but a programmatic focus elsewhere can still trigger blur).
+          const next = e.relatedTarget as HTMLElement | null;
+          if (next && next.closest && next.closest('[data-toolbar]')) return;
+          if (exitingRef.current) return;
+          if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+          await flush();
+          onExit();
+        }}
+      >
+        <EditorContent editor={editor} />
+      </div>
+
+      {(saving || error) && (
+        <span className={`absolute -top-5 right-0 text-[10px] px-1 rounded ${
+          error ? 'bg-red-100 text-red-700' : 'bg-gray-200 text-gray-600'
+        }`}>
+          {error ? `error: ${error}` : 'saving…'}
+        </span>
+      )}
+    </div>
+  );
+};
+
+const ToolbarBtn: React.FC<{
+  active?: boolean;
+  onClick: () => void;
+  title: string;
+  children: React.ReactNode;
+}> = ({ active, onClick, title, children }) => (
+  <button
+    type="button"
+    data-toolbar
+    onClick={onClick}
+    title={title}
+    className={`px-1.5 py-0.5 text-xs rounded ${
+      active ? 'bg-blue-100 text-blue-700' : 'text-gray-700 hover:bg-gray-100'
+    }`}
+  >
+    {children}
+  </button>
+);
 
 export default CventUploadView;

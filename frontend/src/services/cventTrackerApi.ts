@@ -36,6 +36,20 @@ export interface CventCell {
   font_italic: boolean;
   font_color: string | null;
   fill_color: string | null;
+  // Phase 4 — per-cell user edits
+  value_html?: string | null;
+  link_url?: string | null;
+  is_red_flagged?: boolean;
+  is_user_edited?: boolean;
+}
+
+export interface CventCellPatch {
+  value?: string | null;
+  value_html?: string | null;
+  link_url?: string | null;
+  is_red_flagged?: boolean;
+  font_bold?: boolean;
+  font_italic?: boolean;
 }
 
 export interface CventSheetWithCells {
@@ -93,6 +107,23 @@ export const cventTrackerApi = {
   getUpload: async (eventId: string, uploadId: string): Promise<CventUploadDetail> => {
     const res = await apiClient.get(
       `/commissions/${eventId}/cvent-tracker/uploads/${uploadId}`,
+    );
+    return res.data;
+  },
+
+  /** Edit one cell on a master upload. Returns the resulting (upserted)
+   * cell. 403 if called on a Cvent original. */
+  patchCell: async (
+    eventId: string,
+    uploadId: string,
+    sheetId: string,
+    rowIdx: number,
+    colIdx: number,
+    patch: CventCellPatch,
+  ): Promise<CventCell> => {
+    const res = await apiClient.patch(
+      `/commissions/${eventId}/cvent-tracker/uploads/${uploadId}/sheets/${sheetId}/cells/${rowIdx}/${colIdx}`,
+      patch,
     );
     return res.data;
   },
