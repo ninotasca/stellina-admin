@@ -4,6 +4,7 @@ import { commissionApi } from '../services/commissionApi';
 import { nimbleApi, type NimbleCompanyLite, type NimblePersonLite } from '../services/nimbleApi';
 import { rfpApi } from '../services/rfpApi';
 import NoteFeed from '../components/NoteFeed';
+import CventResponsesCard from '../components/CventResponsesCard';
 import NimbleTypeahead, { type NimbleSelection, type PickerItem } from '../components/NimbleTypeahead';
 import CurrencyInput from '../components/CurrencyInput';
 import NimbleLink from '../components/NimbleLink';
@@ -814,6 +815,7 @@ const RFPInfoCard: React.FC<{
   onNewRfp: () => void;
   onOpenRfp: (rfpId: string, view: 'edit' | 'invitations' | 'responses' | 'preview') => void;
 }> = ({ event, rfps, onEditEvent, onNewRfp, onOpenRfp }) => {
+  const bookingName = event.meeting_name || event.client_company_name || 'booking';
   // Sort: winner → considered → no_longer_considered, then by created_at.
   const sortedHotels = [...event.hotels_considered].sort((a, b) => {
     const order = { winner: 0, considered: 1, no_longer_considered: 2 };
@@ -898,6 +900,9 @@ const RFPInfoCard: React.FC<{
           </ul>
         )}
       </div>
+
+      {/* Excel files — Cvent responses uploaded for this booking */}
+      <CventResponsesCard eventId={event.id} bookingName={bookingName} />
     </section>
   );
 };
