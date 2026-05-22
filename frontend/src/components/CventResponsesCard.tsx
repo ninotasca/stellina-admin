@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   cventTrackerApi,
   type CventTrackerView,
@@ -23,12 +24,12 @@ const formatDateTime = (iso: string): string =>
 const safeFileSegment = (s: string): string =>
   s.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim() || 'booking';
 
-const downloadFilename = (bookingName: string, uploadedAtIso: string): string => {
+const downloadFilename = (bookingName: string, uploadedAtIso: string, suffix = ''): string => {
   const d = new Date(uploadedAtIso);
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
-  return `${safeFileSegment(bookingName)} - original - ${yyyy}-${mm}-${dd}.xlsx`;
+  return `${safeFileSegment(bookingName)} - ${yyyy}-${mm}-${dd}${suffix}.xlsx`;
 };
 
 const CventResponsesCard: React.FC<Props> = ({ eventId, bookingName }) => {
@@ -81,9 +82,8 @@ const CventResponsesCard: React.FC<Props> = ({ eventId, bookingName }) => {
   const handleDownload = async (upload: CventUpload) => {
     setError(null);
     try {
-      const name = downloadFilename(bookingName, upload.uploaded_at);
-      // The filename has to go through the signed URL (Content-Disposition);
-      // the HTML5 `download` attribute is ignored for cross-origin links.
+      const suffix = upload.source === 'master' ? '' : ' (cvent original)';
+      const name = downloadFilename(bookingName, upload.uploaded_at, suffix);
       const url = await cventTrackerApi.getDownloadUrl(eventId, upload.id, name);
       const a = document.createElement('a');
       a.href = url;
@@ -111,11 +111,25 @@ const CventResponsesCard: React.FC<Props> = ({ eventId, bookingName }) => {
 
   const uploads = tracker?.uploads ?? [];
 
+  // Group originals + their masters. Each "group" renders as one parent row
+  // (the immutable Cvent original) with one indented child (the editable
+  // master). Legacy uploads that pre-date the two-file model show alone.
+  const groups = (() => {
+    const originals = uploads.filter((u) => u.source === 'cvent');
+    const mastersByParent = new Map<string, CventUpload>();
+    for (const u of uploads) {
+      if (u.source === 'master' && u.parent_upload_id) {
+        mastersByParent.set(u.parent_upload_id, u);
+      }
+    }
+    return originals.map((o) => ({ original: o, master: mastersByParent.get(o.id) ?? null }));
+  })();
+
   return (
     <div className="rounded-md bg-amber-50 ring-1 ring-amber-100 p-3">
       <div className="flex items-baseline justify-between mb-2">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-amber-700">
-          Excel Files ({uploads.length})
+          Excel Files ({groups.length})
         </span>
       </div>
 
@@ -137,24 +151,62 @@ const CventResponsesCard: React.FC<Props> = ({ eventId, bookingName }) => {
         <p className="text-xs text-amber-700/70 italic">Loading…</p>
       ) : (
         <>
-          {uploads.length > 0 && (
+          {groups.length > 0 && (
             <ul className="divide-y divide-amber-100 mb-2">
-              {uploads.map((u) => (
-                <li key={u.id} className="flex items-center justify-between py-2 gap-3">
-                  <div className="flex items-baseline gap-2 min-w-0 text-sm">
-                    <span className="font-medium text-gray-900 truncate">{u.original_filename}</span>
-                    <span className="text-gray-400">·</span>
-                    <span className="text-gray-600 whitespace-nowrap">Cvent</span>
-                    <span className="text-gray-400">·</span>
-                    <span className="text-gray-500 whitespace-nowrap">{formatDateTime(u.uploaded_at)}</span>
+              {groups.map(({ original, master }) => (
+                <li key={original.id} className="py-2 space-y-1.5">
+                  {/* Parent: Cvent original — immutable. Download only. */}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-baseline gap-2 min-w-0 text-sm">
+                      <span className="font-medium text-gray-900 truncate">{original.original_filename}</span>
+                      <span className="text-gray-400">·</span>
+                      <span className="text-gray-600 whitespace-nowrap">Cvent original</span>
+                      <span className="text-gray-400">·</span>
+                      <span className="text-gray-500 whitespace-nowrap">{formatDateTime(original.uploaded_at)}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 whitespace-nowrap">read-only</span>
+                    </div>
+                    <div className="flex gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleDownload(original)}
+                        className="px-2.5 py-1 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50"
+                      >
+                        Download
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleDownload(u)}
-                    className="px-2.5 py-1 text-xs font-medium text-amber-700 bg-white border border-amber-300 rounded hover:bg-amber-100 shrink-0"
-                  >
-                    Download
-                  </button>
+
+                  {/* Child: Master — auto-generated, editable. View + Download. */}
+                  {master ? (
+                    <div className="flex items-center justify-between gap-3 pl-5 border-l-2 border-amber-300">
+                      <div className="flex items-baseline gap-2 min-w-0 text-sm">
+                        <span className="text-amber-700/80">↳</span>
+                        <span className="font-medium text-gray-900 truncate">Master</span>
+                        <span className="text-gray-400">·</span>
+                        <span className="text-gray-600 whitespace-nowrap">auto-styled</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-200 text-amber-800 whitespace-nowrap">editable</span>
+                      </div>
+                      <div className="flex gap-1.5 shrink-0">
+                        <Link
+                          to={`/commissions/${eventId}/cvent/${master.id}`}
+                          className="px-2.5 py-1 text-xs font-medium text-amber-700 bg-white border border-amber-300 rounded hover:bg-amber-100"
+                        >
+                          View
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => handleDownload(master)}
+                          className="px-2.5 py-1 text-xs font-medium text-amber-700 bg-white border border-amber-300 rounded hover:bg-amber-100"
+                        >
+                          Download
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="pl-5 text-[11px] text-amber-700/60 italic border-l-2 border-amber-200">
+                      ↳ Master not generated for this upload (legacy data — reset & re-upload to create one).
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

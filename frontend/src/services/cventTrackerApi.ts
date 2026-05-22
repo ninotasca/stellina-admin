@@ -9,6 +9,8 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+export type CventUploadSource = 'cvent' | 'master';
+
 export interface CventUpload {
   id: string;
   tracker_id: string;
@@ -17,6 +19,38 @@ export interface CventUpload {
   storage_path: string;
   sha256: string;
   uploaded_at: string;
+  /** 'cvent' = the immutable user-uploaded file; 'master' = our styled rebuild (editable). */
+  source: CventUploadSource;
+  /** Set on masters, points to the cvent original they were generated from. */
+  parent_upload_id: string | null;
+}
+
+export type CventSheetKind = 'summary' | 'destination';
+
+export interface CventCell {
+  row_idx: number;
+  col_idx: number;
+  value: string | null;
+  number_format: string | null;
+  font_bold: boolean;
+  font_italic: boolean;
+  font_color: string | null;
+  fill_color: string | null;
+}
+
+export interface CventSheetWithCells {
+  id: string;
+  name: string;
+  kind: CventSheetKind;
+  position: number;
+  cell_count: number;
+  cells: CventCell[];
+  max_row: number;
+  max_col: number;
+}
+
+export interface CventUploadDetail extends CventUpload {
+  sheets: CventSheetWithCells[];
 }
 
 export interface CventTrackerView {
@@ -55,10 +89,17 @@ export const cventTrackerApi = {
     await apiClient.delete(`/commissions/${eventId}/cvent-tracker`);
   },
 
-  /** Returns a short-lived signed URL for direct download from Supabase
-   * Storage. When downloadName is provided, the browser saves the file
-   * under that name (via Content-Disposition, not the <a download>
-   * attribute, which is ignored cross-origin). */
+  /** Fetch one upload's full payload (sheets + cells). Used by the viewer. */
+  getUpload: async (eventId: string, uploadId: string): Promise<CventUploadDetail> => {
+    const res = await apiClient.get(
+      `/commissions/${eventId}/cvent-tracker/uploads/${uploadId}`,
+    );
+    return res.data;
+  },
+
+  /** Returns a short-lived signed URL for direct download of the raw
+   * Cvent .xlsx from Supabase Storage. Mostly useful for audit / debug;
+   * the user-facing Download button uses downloadMaster instead. */
   getDownloadUrl: async (
     eventId: string,
     uploadId: string,
@@ -72,4 +113,5 @@ export const cventTrackerApi = {
     );
     return res.data.url;
   },
+
 };

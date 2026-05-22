@@ -16,6 +16,7 @@ import CommissionForm from './pages/CommissionForm';
 import CommissionProjections from './pages/CommissionProjections';
 import CommissionDashboard from './pages/CommissionDashboard';
 import CommissionView from './pages/CommissionView';
+import CventUploadView from './pages/CventUploadView';
 import NimblePage from './pages/NimblePage';
 import PointsTracker from './pages/PointsTracker';
 
@@ -40,6 +41,16 @@ function App() {
             element={
               <ProtectedRoute requireAdmin={true}>
                 <RFPPreview />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Full-screen Cvent Excel viewer (Phase 2 read-only spreadsheet) */}
+          <Route
+            path="/commissions/:id/cvent/:uploadId"
+            element={
+              <ProtectedRoute requireAdmin={true}>
+                <CventUploadView />
               </ProtectedRoute>
             }
           />
