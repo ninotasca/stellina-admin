@@ -85,6 +85,17 @@ const fmtDate = (v: string | null | undefined) => {
   return parseLocalDate(v).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
 };
 
+const fmtDateTime = (v: string | null | undefined) => {
+  if (!v) return '';
+  return new Date(v).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: '2-digit',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+};
+
 const eventLocation = (ev: CommissionEventWithLineItems): string => {
   if (ev.destinations && ev.destinations.length) return ev.destinations.join(' · ');
   return ev.destination || '';
@@ -184,7 +195,7 @@ const PRESET_TONE: Record<string, { active: string; idle: string }> = {
 };
 
 // Sort keys per view
-type EventSortKey = 'meeting' | 'status' | 'location' | 'start' | 'end' | 'lineCount' | 'payment' | 'total';
+type EventSortKey = 'meeting' | 'status' | 'bookedAt' | 'location' | 'start' | 'end' | 'lineCount' | 'payment' | 'total';
 type LineSortKey = 'meeting' | 'type' | 'vendor' | 'arrival' | 'depart' | 'payment' | 'commission';
 type ExpandedSortKey = 'meeting' | 'type' | 'vendor' | 'resort' | 'booking' | 'arrival' | 'depart' | 'revenue' | 'pct' | 'commission' | 'paymentStatus' | 'invoiceSent' | 'paidDate';
 
@@ -321,6 +332,7 @@ const CommissionList: React.FC = () => {
       switch (key) {
         case 'meeting': cmp = ea.meeting_name.localeCompare(eb.meeting_name); break;
         case 'status': cmp = (BOOKING_STATUS_RANK[ea.booking_status] || 0) - (BOOKING_STATUS_RANK[eb.booking_status] || 0); break;
+        case 'bookedAt': cmp = (ea.booked_at || '9999').localeCompare(eb.booked_at || '9999'); break;
         case 'location': cmp = eventLocation(ea).localeCompare(eventLocation(eb)); break;
         case 'start': cmp = (ea.arrival_date || '9999').localeCompare(eb.arrival_date || '9999'); break;
         case 'end': cmp = (ea.depart_date || '9999').localeCompare(eb.depart_date || '9999'); break;
@@ -392,6 +404,7 @@ const CommissionList: React.FC = () => {
         ev.meeting_name,
         ev.client_company_name || '',
         ev.booking_status,
+        ev.booked_at || '',
         eventLocation(ev),
         ev.arrival_date || '',
         ev.depart_date || '',
@@ -402,7 +415,7 @@ const CommissionList: React.FC = () => {
       ];
     });
     downloadCSV(timestampedFilename('bookings'),
-      ['Meeting', 'Company', 'Status', 'Location', 'Start', 'End', 'Line Types', 'Line Count', 'Payment', 'Total Commission'],
+      ['Meeting', 'Company', 'Status', 'Booked At', 'Location', 'Start', 'End', 'Line Types', 'Line Count', 'Payment', 'Total Commission'],
       rows);
   };
 
@@ -441,7 +454,7 @@ const CommissionList: React.FC = () => {
     });
   };
 
-  const onEventSort = (key: EventSortKey) => setEventSort((prev) => flipDir(key, prev.key, prev.dir, { total: 'desc', start: 'asc', end: 'asc', lineCount: 'desc' }));
+  const onEventSort = (key: EventSortKey) => setEventSort((prev) => flipDir(key, prev.key, prev.dir, { total: 'desc', start: 'asc', end: 'asc', bookedAt: 'desc', lineCount: 'desc' }));
   const onLineSort = (key: LineSortKey) => setLineSort((prev) => flipDir(key, prev.key, prev.dir, { commission: 'desc', arrival: 'asc', depart: 'asc' }));
   const onExpandedSort = (key: ExpandedSortKey) => setExpandedSort((prev) => flipDir(key, prev.key, prev.dir, { commission: 'desc', revenue: 'desc', arrival: 'asc', depart: 'asc' }));
 
@@ -615,6 +628,7 @@ const EventsView: React.FC<{
             <tr>
               <SortHeader active={sort.key === 'meeting'} dir={sort.dir} onClick={() => onSort('meeting')}>Meeting</SortHeader>
               <SortHeader active={sort.key === 'status'} dir={sort.dir} onClick={() => onSort('status')}>Status</SortHeader>
+              <SortHeader active={sort.key === 'bookedAt'} dir={sort.dir} onClick={() => onSort('bookedAt')}>Booked At</SortHeader>
               <SortHeader active={sort.key === 'start'} dir={sort.dir} onClick={() => onSort('start')}>Start</SortHeader>
               <SortHeader active={sort.key === 'end'} dir={sort.dir} onClick={() => onSort('end')}>End</SortHeader>
               <SortHeader active={sort.key === 'location'} dir={sort.dir} onClick={() => onSort('location')}>Location</SortHeader>
@@ -655,6 +669,7 @@ const EventsView: React.FC<{
                         {ev.booking_status.replace('_', ' ')}
                       </span>
                     </td>
+                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDateTime(ev.booked_at) || '—'}</td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(ev.arrival_date) || '—'}</td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(ev.depart_date) || '—'}</td>
                     <td className="px-3 py-2 text-gray-700">{eventLocation(ev) || '—'}</td>
@@ -673,7 +688,7 @@ const EventsView: React.FC<{
                   </tr>
                   {open && (
                     <tr className="bg-gray-50/60">
-                      <td colSpan={8} className="px-0 py-0">
+                      <td colSpan={9} className="px-0 py-0">
                         <div className="px-6 py-3 border-y border-gray-200 bg-gray-50/60">
                           <table className="min-w-full text-xs">
                             <thead>
@@ -720,7 +735,7 @@ const EventsView: React.FC<{
           </tbody>
           <tfoot className="bg-gray-50 border-t-2 border-gray-300">
             <tr>
-              <td colSpan={7} className="px-3 py-2 text-right text-xs uppercase tracking-wider font-semibold text-gray-700">
+              <td colSpan={8} className="px-3 py-2 text-right text-xs uppercase tracking-wider font-semibold text-gray-700">
                 Total ({sortedEvents.length} {sortedEvents.length === 1 ? 'booking' : 'bookings'})
               </td>
               <td className="px-3 py-2 text-right font-bold tabular-nums text-gray-900">

@@ -15,6 +15,7 @@ const NAV: NavItem[] = [
   { to: '/commissions/list', label: 'Bookings' },
   { to: '/points', label: 'Points Tracker' },
   { to: '/rfps', label: 'RFPs' },
+  { to: '/site-selection', label: 'Site Selection' },
 ];
 
 const AppShell: React.FC = () => {

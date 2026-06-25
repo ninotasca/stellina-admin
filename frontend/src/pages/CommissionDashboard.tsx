@@ -58,6 +58,13 @@ function deriveStage(bookingStatus: string, paymentStatus: PaymentStatus): Stage
 // ---------- Period helpers ----------
 
 type Grouping = 'month' | 'quarter' | 'year';
+type DateBasis = 'start_date' | 'booked_at' | 'paid_date';
+
+const DATE_BASIS_LABEL: Record<DateBasis, string> = {
+  start_date: 'Start Date',
+  booked_at: 'Date Booked',
+  paid_date: 'Date Commission Paid',
+};
 
 function periodKey(d: string | null, g: Grouping): string {
   if (!d) return 'Unscheduled';
@@ -118,6 +125,7 @@ interface FlatRow extends CommissionLineItem {
   event: CommissionEventWithLineItems;
   stage: Stage;
   commission: number;
+  basisDate: string | null;
   period: string;
 }
 
@@ -132,6 +140,7 @@ const CommissionDashboard: React.FC = () => {
   type YearFilter = number | 'all' | 'ytd_forward';
 
   const [grouping, setGrouping] = useState<Grouping>('quarter');
+  const [dateBasis, setDateBasis] = useState<DateBasis>('start_date');
   const [stageFilter, setStageFilter] = useState<Set<Stage>>(new Set(ACTIVE_STAGES));
   const [typeFilter, setTypeFilter] = useState<Set<LineType>>(new Set(['hotel', 'dmc', 'air', 'other']));
   const [yearFilter, setYearFilter] = useState<YearFilter>(CURRENT_YEAR);
@@ -152,22 +161,30 @@ const CommissionDashboard: React.FC = () => {
     const out: FlatRow[] = [];
     for (const ev of events) {
       for (const li of ev.line_items) {
+        const stage = deriveStage(ev.booking_status, li.payment_status);
+        const basisDate =
+          dateBasis === 'booked_at'
+            ? ev.booked_at
+            : dateBasis === 'paid_date'
+              ? li.paid_date
+              : li.arrival_date;
         out.push({
           ...li,
           event: ev,
-          stage: deriveStage(ev.booking_status, li.payment_status),
+          stage,
           commission: Number(li.commission_amount || 0),
-          period: periodKey(li.arrival_date, grouping),
+          basisDate,
+          period: periodKey(basisDate, grouping),
         });
       }
     }
     return out;
-  }, [events, grouping]);
+  }, [events, grouping, dateBasis]);
 
   const availableYears = useMemo(() => {
     const years = new Set<number>();
     for (const r of allRows) {
-      if (r.arrival_date) years.add(new Date(r.arrival_date).getUTCFullYear());
+      if (r.basisDate) years.add(new Date(r.basisDate).getUTCFullYear());
     }
     return Array.from(years).sort();
   }, [allRows]);
@@ -176,18 +193,20 @@ const CommissionDashboard: React.FC = () => {
 
   const visibleRows: FlatRow[] = useMemo(() => {
     return allRows.filter((r) => {
+      if (dateBasis === 'booked_at' && r.event.booking_status !== 'definite') return false;
+      if (dateBasis === 'paid_date' && r.stage !== 'paid') return false;
       if (!stageFilter.has(r.stage)) return false;
       if (!typeFilter.has(r.line_type)) return false;
       if (yearFilter === 'all') return true;
-      if (!r.arrival_date) return false;
+      if (!r.basisDate) return false;
       if (yearFilter === 'ytd_forward') {
         // Today onward, across every future year
-        return r.arrival_date >= todayIso;
+        return r.basisDate >= todayIso;
       }
-      const y = new Date(r.arrival_date).getUTCFullYear();
+      const y = new Date(r.basisDate).getUTCFullYear();
       return y === yearFilter;
     });
-  }, [allRows, stageFilter, typeFilter, yearFilter, todayIso]);
+  }, [allRows, dateBasis, stageFilter, typeFilter, yearFilter, todayIso]);
 
   // KPIs — all derived from visibleRows so they respect every active filter (year included)
   const kpis = useMemo(() => {
@@ -327,7 +346,29 @@ const CommissionDashboard: React.FC = () => {
           <>
             {/* Filter bar */}
             <div className="bg-white rounded-lg shadow-sm p-4">
-              <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 items-start">
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
+                <div>
+                  <Label>Group bookings by</Label>
+                  <select
+                    value={dateBasis}
+                    onChange={(e) => setDateBasis(e.target.value as DateBasis)}
+                    className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-full"
+                  >
+                    <option value="start_date">Start Date</option>
+                    <option value="booked_at">Date Booked</option>
+                    <option value="paid_date">Date Commission Paid</option>
+                  </select>
+                  {dateBasis === 'booked_at' && (
+                    <p className="mt-2 text-xs text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-md px-2 py-1">
+                      This view is limited to definite bookings only.
+                    </p>
+                  )}
+                  {dateBasis === 'paid_date' && (
+                    <p className="mt-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-md px-2 py-1">
+                      This view is limited to paid bookings only.
+                    </p>
+                  )}
+                </div>
                 <div>
                   <Label>Period</Label>
                   <div className="flex gap-2">
@@ -407,7 +448,7 @@ const CommissionDashboard: React.FC = () => {
                     )}
                   </div>
                 </div>
-                <div className="lg:col-span-4">
+                <div className="lg:col-span-5">
                   <Label>Line types</Label>
                   <div className="flex gap-1.5">
                     {(['hotel', 'dmc', 'air', 'other'] as LineType[]).map((t) => {
@@ -436,7 +477,9 @@ const CommissionDashboard: React.FC = () => {
             {/* Main chart */}
             <div className="bg-white rounded-lg shadow p-4">
               <div className="flex items-baseline justify-between mb-2">
-                <h2 className="text-lg font-semibold text-gray-900">Commission by {grouping === 'month' ? 'Month' : grouping === 'quarter' ? 'Quarter' : 'Year'}</h2>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Commission by {DATE_BASIS_LABEL[dateBasis]} / {grouping === 'month' ? 'Month' : grouping === 'quarter' ? 'Quarter' : 'Year'}
+                </h2>
                 <span className="text-xs text-gray-500">stacked by lifecycle stage</span>
               </div>
               {chartData.length === 0 ? (
@@ -464,8 +507,8 @@ const CommissionDashboard: React.FC = () => {
             {/* Period rollup with expandable details */}
             <div className="bg-white rounded-lg shadow overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-200">
-                <h2 className="text-lg font-semibold text-gray-900">
-                  Commission by {grouping === 'month' ? 'Month' : grouping === 'quarter' ? 'Quarter' : 'Year'}
+                  <h2 className="text-lg font-semibold text-gray-900">
+                  Commission by {DATE_BASIS_LABEL[dateBasis]} / {grouping === 'month' ? 'Month' : grouping === 'quarter' ? 'Quarter' : 'Year'}
                 </h2>
               </div>
               <div className="overflow-x-auto">

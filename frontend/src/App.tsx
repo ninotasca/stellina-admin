@@ -11,6 +11,10 @@ import HotelInvitations from './pages/HotelInvitations';
 import HotelResponseForm from './pages/HotelResponseForm';
 import RFPPreview from './pages/RFPPreview';
 import ResponseComparison from './pages/ResponseComparison';
+import SiteSelectionFormBuilder from './pages/SiteSelectionFormBuilder';
+import SiteSelectionList from './pages/SiteSelectionList';
+import PublicSiteSelectionForm from './pages/PublicSiteSelectionForm';
+import SiteSelectionResponses from './pages/SiteSelectionResponses';
 import CommissionList from './pages/CommissionList';
 import CommissionForm from './pages/CommissionForm';
 import CommissionProjections from './pages/CommissionProjections';
@@ -34,6 +38,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/auth/callback" element={<Login />} />
           <Route path="/hotel-response/:guid" element={<HotelResponseForm />} />
+          <Route path="/site-selection/:guid" element={<PublicSiteSelectionForm />} />
 
           {/* Admin-only but renders the Partner Portal shell, not the admin nav */}
           <Route
@@ -65,6 +70,11 @@ function App() {
             <Route path="/rfps/:id/edit" element={<RFPForm />} />
             <Route path="/rfps/:rfpId/invitations" element={<HotelInvitations />} />
             <Route path="/rfps/:rfpId/responses" element={<ResponseComparison />} />
+
+            <Route path="/site-selection" element={<SiteSelectionList />} />
+            <Route path="/commissions/:eventId/site-selection/new" element={<SiteSelectionFormBuilder />} />
+            <Route path="/site-selection/:id/edit" element={<SiteSelectionFormBuilder />} />
+            <Route path="/site-selection/:id/responses" element={<SiteSelectionResponses />} />
 
             <Route path="/commissions" element={<CommissionDashboard />} />
             <Route path="/commissions/list" element={<CommissionList />} />

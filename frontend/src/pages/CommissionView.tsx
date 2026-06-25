@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { commissionApi } from '../services/commissionApi';
 import { nimbleApi, type NimbleCompanyLite, type NimblePersonLite } from '../services/nimbleApi';
 import { rfpApi } from '../services/rfpApi';
+import { siteSelectionApi } from '../services/siteSelectionApi';
 import NoteFeed from '../components/NoteFeed';
 import CventResponsesCard from '../components/CventResponsesCard';
 import NimbleTypeahead, { type NimbleSelection, type PickerItem } from '../components/NimbleTypeahead';
@@ -26,6 +27,7 @@ import type {
   PaymentStatus,
 } from '../types/commission';
 import type { RFP } from '../types/rfp';
+import type { SiteSelectionFormSummary } from '../types/siteSelection';
 
 // ---------- Shared visual tokens ----------
 
@@ -267,6 +269,7 @@ const CommissionView: React.FC = () => {
   const navigate = useNavigate();
   const [event, setEvent] = useState<CommissionEventWithLineItems | null>(null);
   const [rfps, setRfps] = useState<RFP[]>([]);
+  const [siteSelectionForms, setSiteSelectionForms] = useState<SiteSelectionFormSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lineItemNotes, setLineItemNotes] = useState<Record<string, CommissionNote[]>>({});
@@ -303,13 +306,15 @@ const CommissionView: React.FC = () => {
     (async () => {
       try {
         setLoading(true);
-        const [ev, rfpsForEvent] = await Promise.all([
+        const [ev, rfpsForEvent, formsForEvent] = await Promise.all([
           commissionApi.getEvent(id),
           rfpApi.listRFPsForEvent(id).catch(() => [] as RFP[]),
+          siteSelectionApi.listForms(id).catch(() => [] as SiteSelectionFormSummary[]),
         ]);
         if (cancelled) return;
         setEvent(ev);
         setRfps(rfpsForEvent);
+        setSiteSelectionForms(formsForEvent);
         const [liNotes, hNotes] = await Promise.all([
           ev.line_items.length > 0 ? loadAllLineItemNotes(ev.line_items) : Promise.resolve({}),
           ev.hotels_considered.length > 0 ? loadAllHotelNotes(ev.hotels_considered) : Promise.resolve({}),
@@ -485,9 +490,13 @@ const CommissionView: React.FC = () => {
             <RFPInfoCard
               event={event}
               rfps={rfps}
+              siteSelectionForms={siteSelectionForms}
               onEditEvent={() => setEditingBox('rfp')}
               onNewRfp={() => navigate(`/commissions/${event.id}/rfps/new`)}
               onOpenRfp={(rfpId, view) => navigate(`/rfps/${rfpId}/${view}`)}
+              onNewSiteSelection={() => navigate(`/commissions/${event.id}/site-selection/new`)}
+              onOpenSiteSelection={(formId) => navigate(`/site-selection/${formId}/edit`)}
+              onOpenSiteSelectionResponses={(formId) => navigate(`/site-selection/${formId}/responses`)}
             />
           )
         )}
@@ -811,10 +820,24 @@ const ContactCard: React.FC<{
 const RFPInfoCard: React.FC<{
   event: CommissionEventWithLineItems;
   rfps: RFP[];
+  siteSelectionForms: SiteSelectionFormSummary[];
   onEditEvent: () => void;
   onNewRfp: () => void;
   onOpenRfp: (rfpId: string, view: 'edit' | 'invitations' | 'responses' | 'preview') => void;
-}> = ({ event, rfps, onEditEvent, onNewRfp, onOpenRfp }) => {
+  onNewSiteSelection: () => void;
+  onOpenSiteSelection: (formId: string) => void;
+  onOpenSiteSelectionResponses: (formId: string) => void;
+}> = ({
+  event,
+  rfps,
+  siteSelectionForms,
+  onEditEvent,
+  onNewRfp,
+  onOpenRfp,
+  onNewSiteSelection,
+  onOpenSiteSelection,
+  onOpenSiteSelectionResponses,
+}) => {
   const bookingName = event.meeting_name || event.client_company_name || 'booking';
   // Sort: winner → considered → no_longer_considered, then by created_at.
   const sortedHotels = [...event.hotels_considered].sort((a, b) => {
@@ -852,6 +875,50 @@ const RFPInfoCard: React.FC<{
         ) : (
           <ul className="divide-y divide-gray-100">
             {sortedHotels.map((h) => <HotelRow key={h.id} hotel={h} />)}
+          </ul>
+        )}
+      </div>
+
+      {/* Site Selection Forms */}
+      <div className="rounded-md bg-emerald-50 ring-1 ring-emerald-100 p-3">
+        <div className="flex items-baseline justify-between mb-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-800">
+            Site Selection Forms ({siteSelectionForms.length})
+          </span>
+          <button
+            onClick={onNewSiteSelection}
+            className="px-2.5 py-1 text-xs font-medium text-emerald-800 bg-white border border-emerald-300 rounded hover:bg-emerald-100"
+          >
+            + New Form
+          </button>
+        </div>
+        {siteSelectionForms.length === 0 ? (
+          <p className="text-xs text-emerald-800/70 italic">No site selection forms yet for this booking.</p>
+        ) : (
+          <ul className="divide-y divide-emerald-100">
+            {siteSelectionForms.map((form) => (
+              <li key={form.id} className="flex items-center justify-between py-2">
+                <div>
+                  <div className="text-sm font-medium text-gray-900">{form.title}</div>
+                  <div className="text-[11px] text-gray-500">
+                    {form.hotel_name || 'Booking only'} · {form.submitted_at ? 'Submitted' : 'Open'}
+                  </div>
+                </div>
+                <div className="flex gap-3 text-xs">
+                  <button onClick={() => onOpenSiteSelectionResponses(form.id)} className="text-blue-700 hover:underline">Answers</button>
+                  <button onClick={() => onOpenSiteSelection(form.id)} className="text-emerald-800 hover:underline">Edit</button>
+                  <a
+                    href={`/site-selection/${form.guid}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-amber-700 hover:underline"
+                    title="Open the client-facing form in a new tab"
+                  >
+                    Client Link ↗
+                  </a>
+                </div>
+              </li>
+            ))}
           </ul>
         )}
       </div>

@@ -103,6 +103,7 @@ export interface CommissionEvent {
   peak_rooms: number | null;
   total_room_nights: number | null;
   can_earn_points: boolean;
+  booked_at: string | null;
   created_at: string;
   updated_at: string;
 }
