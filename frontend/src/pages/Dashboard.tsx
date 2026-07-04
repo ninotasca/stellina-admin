@@ -78,6 +78,9 @@ const eventLocation = (ev: CommissionEventWithLineItems): string => {
   return ev.destination || '';
 };
 
+const eventCommissionTotal = (ev: CommissionEventWithLineItems): number =>
+  ev.line_items.reduce((sum, li) => sum + num(li.commission_amount), 0);
+
 // ---------- Component ----------
 
 const Dashboard: React.FC = () => {
@@ -341,8 +344,8 @@ const Dashboard: React.FC = () => {
 
 // ---------- Tiny shared bits ----------
 
-const Th: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+const Th: React.FC<{ children: React.ReactNode; right?: boolean }> = ({ children, right = false }) => (
+  <th className={`px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap ${right ? 'text-right' : 'text-left'}`}>
     {children}
   </th>
 );
@@ -355,14 +358,17 @@ const TONE_BANNER: Record<Tone, string> = {
   yellow: 'bg-yellow-50 text-yellow-900 border-y border-yellow-200',
 };
 
-const GroupHeader: React.FC<{ title: string; subtitle: string; tone: Tone; count: number }> = ({
-  title, subtitle, tone, count,
+const GroupHeader: React.FC<{ title: string; subtitle: string; tone: Tone; count: number; totalCommission: number }> = ({
+  title, subtitle, tone, count, totalCommission,
 }) => (
   <div className={`px-5 py-2.5 flex items-baseline gap-2 ${TONE_BANNER[tone]}`}>
     <h4 className="text-xs font-semibold uppercase tracking-wider">{title}</h4>
     <span className="text-[11px] opacity-75">{subtitle}</span>
-    <span className="ml-auto text-[11px] opacity-75">
+    <span className="ml-auto text-[11px] opacity-75 whitespace-nowrap">
       {count} {count === 1 ? 'item' : 'items'}
+    </span>
+    <span className="text-[11px] font-semibold tabular-nums whitespace-nowrap">
+      {fmtMoney0(totalCommission)}
     </span>
   </div>
 );
@@ -381,68 +387,87 @@ const SharedCols: React.FC = () => (
   <colgroup>
     <col style={{ width: '160px' }} />
     <col />
-    <col style={{ width: '200px' }} />
+    <col style={{ width: '180px' }} />
     <col style={{ width: '110px' }} />
     <col style={{ width: '110px' }} />
+    <col style={{ width: '130px' }} />
     <col style={{ width: '180px' }} />
   </colgroup>
 );
 
+const CommissionCell: React.FC<{ value: number; strong?: boolean }> = ({ value, strong = false }) => (
+  <td className={`px-3 py-2 text-right tabular-nums ${strong ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>
+    {value > 0 ? fmtMoney0(value) : <span className="text-gray-300 font-normal">—</span>}
+  </td>
+);
+
 const EventGroup: React.FC<EventGroupProps> = ({
   title, subtitle, tone, rows, emptyText, onRowClick,
-}) => (
-  <div className="border-b border-gray-100 last:border-b-0">
-    <GroupHeader title={title} subtitle={subtitle} tone={tone} count={rows.length} />
-    {rows.length === 0 ? (
-      <p className="px-5 py-4 text-center text-sm text-gray-500">{emptyText}</p>
-    ) : (
-      <table className="min-w-full table-fixed divide-y divide-gray-200 text-sm">
-        <SharedCols />
-        <thead className="bg-white">
-          <tr>
-            <Th>Status</Th>
-            <Th>Meeting</Th>
-            <Th> </Th>
-            <Th>Start</Th>
-            <Th>End</Th>
-            <Th>Location</Th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {rows.map(({ badge, event }, i) => (
-            <tr key={`${event.id}-${badge.label}-${i}`} className="hover:bg-gray-50">
-              <td className="px-3 py-2">
-                <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${badge.bg} ${badge.text}`}>
-                  {badge.label}
-                </span>
-              </td>
-              <td className="px-3 py-2">
-                <button
-                  onClick={() => onRowClick(event.id)}
-                  className="text-blue-700 hover:underline font-medium text-left truncate block max-w-full"
-                  title={event.meeting_name}
-                >
-                  {event.meeting_name}
-                </button>
-                {event.client_company_name && (
-                  <div className="text-xs text-gray-500 truncate" title={event.client_company_name}>
-                    {event.client_company_name}
-                  </div>
-                )}
-              </td>
-              <td className="px-3 py-2" />
-              <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(event.arrival_date)}</td>
-              <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(event.depart_date)}</td>
-              <td className="px-3 py-2 text-gray-700 truncate" title={eventLocation(event)}>
-                {eventLocation(event) || '—'}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    )}
-  </div>
-);
+}) => {
+  const totalCommission = rows.reduce((sum, { event }) => sum + eventCommissionTotal(event), 0);
+
+  return (
+    <div className="border-b border-gray-100 last:border-b-0">
+      <GroupHeader title={title} subtitle={subtitle} tone={tone} count={rows.length} totalCommission={totalCommission} />
+      {rows.length === 0 ? (
+        <p className="px-5 py-4 text-center text-sm text-gray-500">{emptyText}</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-[980px] w-full table-fixed divide-y divide-gray-200 text-sm">
+            <SharedCols />
+            <thead className="bg-white">
+              <tr>
+                <Th>Status</Th>
+                <Th>Meeting</Th>
+                <Th> </Th>
+                <Th>Start</Th>
+                <Th>End</Th>
+                <Th right>Total $</Th>
+                <Th>Location</Th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {rows.map(({ badge, event }, i) => {
+                const commissionTotal = eventCommissionTotal(event);
+
+                return (
+                  <tr key={`${event.id}-${badge.label}-${i}`} className="hover:bg-gray-50">
+                    <td className="px-3 py-2">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${badge.bg} ${badge.text}`}>
+                        {badge.label}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <button
+                        onClick={() => onRowClick(event.id)}
+                        className="text-blue-700 hover:underline font-medium text-left truncate block max-w-full"
+                        title={event.meeting_name}
+                      >
+                        {event.meeting_name}
+                      </button>
+                      {event.client_company_name && (
+                        <div className="text-xs text-gray-500 truncate" title={event.client_company_name}>
+                          {event.client_company_name}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2" />
+                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(event.arrival_date)}</td>
+                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(event.depart_date)}</td>
+                    <CommissionCell value={commissionTotal} strong />
+                    <td className="px-3 py-2 text-gray-700 truncate" title={eventLocation(event)}>
+                      {eventLocation(event) || '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface LineGroupProps {
   title: string;
@@ -455,60 +480,72 @@ interface LineGroupProps {
 
 const LineGroup: React.FC<LineGroupProps> = ({
   title, subtitle, tone, rows, emptyText, onRowClick,
-}) => (
-  <div className="border-b border-gray-100 last:border-b-0">
-    <GroupHeader title={title} subtitle={subtitle} tone={tone} count={rows.length} />
-    {rows.length === 0 ? (
-      <p className="px-5 py-4 text-center text-sm text-gray-500">{emptyText}</p>
-    ) : (
-      <table className="min-w-full table-fixed divide-y divide-gray-200 text-sm">
-        <SharedCols />
-        <thead className="bg-white">
-          <tr>
-            <Th>Status</Th>
-            <Th>Meeting</Th>
-            <Th>Line</Th>
-            <Th>Start</Th>
-            <Th>End</Th>
-            <Th>Detail</Th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {rows.map(({ badge, event, line, detail }, i) => (
-            <tr key={`${event.id}-${line.id}-${badge.label}-${i}`} className="hover:bg-gray-50">
-              <td className="px-3 py-2">
-                <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${badge.bg} ${badge.text}`}>
-                  {badge.label}
-                </span>
-              </td>
-              <td className="px-3 py-2">
-                <button
-                  onClick={() => onRowClick(event.id)}
-                  className="text-blue-700 hover:underline font-medium text-left truncate block max-w-full"
-                  title={event.meeting_name}
-                >
-                  {event.meeting_name}
-                </button>
-                {event.client_company_name && (
-                  <div className="text-xs text-gray-500 truncate" title={event.client_company_name}>
-                    {event.client_company_name}
-                  </div>
-                )}
-              </td>
-              <td className="px-3 py-2 text-gray-700 truncate" title={`${line.line_type.toUpperCase()} · ${line.company_name}`}>
-                <span className="font-medium uppercase tracking-wider text-[10px] text-gray-500 mr-1">{line.line_type}</span>
-                {line.company_name}
-              </td>
-              <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(line.arrival_date)}</td>
-              <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(line.depart_date)}</td>
-              <td className="px-3 py-2 text-gray-700 whitespace-nowrap text-xs">{detail}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    )}
-  </div>
-);
+}) => {
+  const totalCommission = rows.reduce((sum, { line }) => sum + num(line.commission_amount), 0);
+
+  return (
+    <div className="border-b border-gray-100 last:border-b-0">
+      <GroupHeader title={title} subtitle={subtitle} tone={tone} count={rows.length} totalCommission={totalCommission} />
+      {rows.length === 0 ? (
+        <p className="px-5 py-4 text-center text-sm text-gray-500">{emptyText}</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-[980px] w-full table-fixed divide-y divide-gray-200 text-sm">
+            <SharedCols />
+            <thead className="bg-white">
+              <tr>
+                <Th>Status</Th>
+                <Th>Meeting</Th>
+                <Th>Line</Th>
+                <Th>Start</Th>
+                <Th>End</Th>
+                <Th right>Total $</Th>
+                <Th>Detail</Th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {rows.map(({ badge, event, line, detail }, i) => {
+                const commissionTotal = num(line.commission_amount);
+
+                return (
+                  <tr key={`${event.id}-${line.id}-${badge.label}-${i}`} className="hover:bg-gray-50">
+                    <td className="px-3 py-2">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${badge.bg} ${badge.text}`}>
+                        {badge.label}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <button
+                        onClick={() => onRowClick(event.id)}
+                        className="text-blue-700 hover:underline font-medium text-left truncate block max-w-full"
+                        title={event.meeting_name}
+                      >
+                        {event.meeting_name}
+                      </button>
+                      {event.client_company_name && (
+                        <div className="text-xs text-gray-500 truncate" title={event.client_company_name}>
+                          {event.client_company_name}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-gray-700 truncate" title={`${line.line_type.toUpperCase()} · ${line.company_name}`}>
+                      <span className="font-medium uppercase tracking-wider text-[10px] text-gray-500 mr-1">{line.line_type}</span>
+                      {line.company_name}
+                    </td>
+                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(line.arrival_date)}</td>
+                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(line.depart_date)}</td>
+                    <CommissionCell value={commissionTotal} strong />
+                    <td className="px-3 py-2 text-gray-700 whitespace-nowrap text-xs">{detail}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const Kpi: React.FC<{ label: string; value: string; sub?: string; tone?: 'green' | 'blue' | 'indigo' | 'yellow' }> = ({ label, value, sub, tone }) => {
   const color =

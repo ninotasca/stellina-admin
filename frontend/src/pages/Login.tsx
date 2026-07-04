@@ -5,11 +5,12 @@ import { apiClient } from '../services/api';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 const REDIRECT_URI = `${window.location.origin}/auth/callback`;
+const MAGIC_LOGIN_ENABLED = import.meta.env.VITE_ENABLE_MAGIC_LOGIN === 'true';
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login, isAuthenticated } = useAuth();
+  const { login, magicLogin, isAuthenticated } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,6 +54,11 @@ const Login: React.FC = () => {
       prompt: 'consent',
     })}`;
     window.location.href = authUrl;
+  };
+
+  const handleMagicLogin = () => {
+    magicLogin();
+    navigate('/dashboard');
   };
 
   return (
@@ -110,6 +116,17 @@ const Login: React.FC = () => {
                 </>
               )}
             </button>
+
+            {MAGIC_LOGIN_ENABLED && (
+              <button
+                type="button"
+                onClick={handleMagicLogin}
+                disabled={loading}
+                className="mt-3 w-full flex items-center justify-center gap-2 px-6 py-3 bg-[#3e555c] text-white rounded-lg hover:bg-[#31464d] transition-all shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <span className="font-medium">Magic Login</span>
+              </button>
+            )}
 
             <p className="mt-6 text-center text-xs text-gray-400">
               Access requires an approved Stellina Connections account.

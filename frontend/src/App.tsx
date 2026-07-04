@@ -21,6 +21,7 @@ import CommissionProjections from './pages/CommissionProjections';
 import CommissionDashboard from './pages/CommissionDashboard';
 import CommissionView from './pages/CommissionView';
 import CventUploadView from './pages/CventUploadView';
+import CventMergePage from './pages/CventMergePage';
 import NimblePage from './pages/NimblePage';
 import PointsTracker from './pages/PointsTracker';
 
@@ -56,6 +57,16 @@ function App() {
             element={
               <ProtectedRoute requireAdmin={true}>
                 <CventUploadView />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Cvent re-upload merge / conflict resolution (Phase 5) */}
+          <Route
+            path="/commissions/:id/cvent-merge/:mergeJobId"
+            element={
+              <ProtectedRoute requireAdmin={true}>
+                <CventMergePage />
               </ProtectedRoute>
             }
           />

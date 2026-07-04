@@ -75,10 +75,26 @@ const PAYMENT_STATUS_OPTIONS: { value: PaymentStatus; label: string }[] = [
 
 const fmtMoney = (v: string | number | null | undefined): string => {
   if (v === null || v === undefined || v === '') return '';
-  const n = typeof v === 'number' ? v : Number(v);
+  const n = num(v);
   if (Number.isNaN(n) || n === 0) return '';
   return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 };
+
+const num = (v: string | number | null | undefined): number => {
+  if (v === null || v === undefined || v === '') return 0;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  const n = Number(v.replace(/[$,]/g, '').trim());
+  return Number.isFinite(n) ? n : 0;
+};
+
+const fmtPercent = (v: string | number | null | undefined): string => {
+  if (v === null || v === undefined || v === '') return '';
+  const n = num(v);
+  return n ? `${n}%` : '';
+};
+
+const sumCommission = (lines: CommissionLineItem[]): number =>
+  lines.reduce((sum, line) => sum + num(line.commission_amount), 0);
 
 const fmtDate = (v: string | null | undefined) => {
   if (!v) return '';
@@ -319,6 +335,16 @@ const CommissionList: React.FC = () => {
     return out;
   }, [visibleEvents]);
 
+  const hasLineScopedFilters = (
+    typeSel.size > 0 ||
+    paymentSel.size > 0 ||
+    yearSel.size > 0 ||
+    search.trim().length > 0 ||
+    preset === 'awaiting_payment' ||
+    preset === 'needs_invoice' ||
+    preset === 'coming_soon'
+  );
+
   // ---------- Sort wrappers ----------
 
   const sortedEvents = useMemo(() => {
@@ -327,8 +353,8 @@ const CommissionList: React.FC = () => {
     arr.sort((a, b) => {
       const ea = a.event, eb = b.event;
       let cmp = 0;
-      const totalA = a.lines.reduce((s, l) => s + Number(l.commission_amount || 0), 0);
-      const totalB = b.lines.reduce((s, l) => s + Number(l.commission_amount || 0), 0);
+      const totalA = sumCommission(a.lines);
+      const totalB = sumCommission(b.lines);
       switch (key) {
         case 'meeting': cmp = ea.meeting_name.localeCompare(eb.meeting_name); break;
         case 'status': cmp = (BOOKING_STATUS_RANK[ea.booking_status] || 0) - (BOOKING_STATUS_RANK[eb.booking_status] || 0); break;
@@ -357,7 +383,7 @@ const CommissionList: React.FC = () => {
         case 'arrival': cmp = (a.line.arrival_date || '9999').localeCompare(b.line.arrival_date || '9999'); break;
         case 'depart': cmp = (a.line.depart_date || '9999').localeCompare(b.line.depart_date || '9999'); break;
         case 'payment': cmp = (PAYMENT_RANK[a.line.payment_status] || 0) - (PAYMENT_RANK[b.line.payment_status] || 0); break;
-        case 'commission': cmp = Number(a.line.commission_amount || 0) - Number(b.line.commission_amount || 0); break;
+        case 'commission': cmp = num(a.line.commission_amount) - num(b.line.commission_amount); break;
       }
       return dir === 'asc' ? cmp : -cmp;
     });
@@ -378,9 +404,9 @@ const CommissionList: React.FC = () => {
         case 'booking': cmp = (BOOKING_STATUS_RANK[a.event.booking_status] || 0) - (BOOKING_STATUS_RANK[b.event.booking_status] || 0); break;
         case 'arrival': cmp = (al.arrival_date || '9999').localeCompare(bl.arrival_date || '9999'); break;
         case 'depart': cmp = (al.depart_date || '9999').localeCompare(bl.depart_date || '9999'); break;
-        case 'revenue': cmp = Number(al.revenue || 0) - Number(bl.revenue || 0); break;
-        case 'pct': cmp = Number(al.commission_pct || 0) - Number(bl.commission_pct || 0); break;
-        case 'commission': cmp = Number(al.commission_amount || 0) - Number(bl.commission_amount || 0); break;
+        case 'revenue': cmp = num(al.revenue) - num(bl.revenue); break;
+        case 'pct': cmp = num(al.commission_pct) - num(bl.commission_pct); break;
+        case 'commission': cmp = num(al.commission_amount) - num(bl.commission_amount); break;
         case 'paymentStatus': cmp = (PAYMENT_RANK[al.payment_status] || 0) - (PAYMENT_RANK[bl.payment_status] || 0); break;
         case 'invoiceSent': cmp = (al.invoice_sent_date || '9999').localeCompare(bl.invoice_sent_date || '9999'); break;
         case 'paidDate': cmp = (al.paid_date || '9999').localeCompare(bl.paid_date || '9999'); break;
@@ -394,7 +420,7 @@ const CommissionList: React.FC = () => {
 
   const downloadEventsCSV = () => {
     const rows = sortedEvents.map(({ event: ev, lines }) => {
-      const total = lines.reduce((s, l) => s + Number(l.commission_amount || 0), 0);
+      const total = sumCommission(lines);
       const types = Array.from(new Set(lines.map((l) => l.line_type))).join(', ');
       const r = rollupPayment(ev, lines);
       const paymentText = r.detail.length === 0 ? '' : r.detail.length === 1
@@ -423,7 +449,7 @@ const CommissionList: React.FC = () => {
     const rows = sortedLines.map(({ event: ev, line: l }) => [
       ev.meeting_name, l.line_type, l.company_name || '',
       l.arrival_date || '', l.depart_date || '',
-      l.payment_status, Number(l.commission_amount || 0),
+      l.payment_status, num(l.commission_amount),
     ]);
     downloadCSV(timestampedFilename('commission-lines'),
       ['Meeting', 'Type', 'Vendor', 'Arrival', 'Depart', 'Payment', 'Commission'],
@@ -434,7 +460,7 @@ const CommissionList: React.FC = () => {
     const rows = sortedExpanded.map(({ event: ev, line: l }) => [
       ev.meeting_name, l.line_type, l.company_name || '', l.resort_hotel || '',
       ev.booking_status, l.arrival_date || '', l.depart_date || '',
-      Number(l.revenue || 0), l.commission_pct ?? '', Number(l.commission_amount || 0),
+      num(l.revenue), l.commission_pct ?? '', num(l.commission_amount),
       l.payment_status, l.invoice_sent_date || '', l.paid_date || '',
     ]);
     downloadCSV(timestampedFilename('commission-detail'),
@@ -563,6 +589,7 @@ const CommissionList: React.FC = () => {
             openEvents={openEvents}
             onToggleEvent={toggleEvent}
             onNavigateEvent={(id) => navigate(`/commissions/${id}`)}
+            totalsAreFiltered={hasLineScopedFilters}
           />
         ) : view === 'lines' ? (
           <LinesView
@@ -612,14 +639,13 @@ const EventsView: React.FC<{
   openEvents: Set<string>;
   onToggleEvent: (id: string) => void;
   onNavigateEvent: (id: string) => void;
-}> = ({ sortedEvents, sort, onSort, openEvents, onToggleEvent, onNavigateEvent }) => {
+  totalsAreFiltered: boolean;
+}> = ({ sortedEvents, sort, onSort, openEvents, onToggleEvent, onNavigateEvent, totalsAreFiltered }) => {
   if (sortedEvents.length === 0) {
     return <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center text-gray-500">No bookings match these filters.</div>;
   }
-  const grandTotal = sortedEvents.reduce(
-    (sum, { lines }) => sum + lines.reduce((s, l) => s + Number(l.commission_amount || 0), 0),
-    0,
-  );
+  const grandTotal = sortedEvents.reduce((sum, { lines }) => sum + sumCommission(lines), 0);
+  const totalLabel = totalsAreFiltered ? 'Filtered Total' : 'Total';
   return (
     <div className="bg-white rounded-lg shadow overflow-hidden">
       <div className="overflow-x-auto">
@@ -634,14 +660,14 @@ const EventsView: React.FC<{
               <SortHeader active={sort.key === 'location'} dir={sort.dir} onClick={() => onSort('location')}>Location</SortHeader>
               <SortHeader active={sort.key === 'lineCount'} dir={sort.dir} onClick={() => onSort('lineCount')}>Lines</SortHeader>
               <SortHeader active={sort.key === 'payment'} dir={sort.dir} onClick={() => onSort('payment')}>Payment</SortHeader>
-              <SortHeader right active={sort.key === 'total'} dir={sort.dir} onClick={() => onSort('total')}>Total</SortHeader>
+              <SortHeader right active={sort.key === 'total'} dir={sort.dir} onClick={() => onSort('total')}>{totalLabel}</SortHeader>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
             {sortedEvents.map(({ event: ev, lines }) => {
               const open = openEvents.has(ev.id);
               const types = Array.from(new Set(lines.map((l) => l.line_type)));
-              const total = lines.reduce((s, l) => s + Number(l.commission_amount || 0), 0);
+              const total = sumCommission(lines);
               const r = rollupPayment(ev, lines);
               return (
                 <React.Fragment key={ev.id}>
@@ -719,7 +745,7 @@ const EventsView: React.FC<{
                                     </span>
                                   </td>
                                   <td className="px-2 py-1.5 text-right tabular-nums">{fmtMoney(l.revenue) || '—'}</td>
-                                  <td className="px-2 py-1.5 text-right tabular-nums">{l.commission_pct ? `${Number(l.commission_pct)}%` : '—'}</td>
+                                  <td className="px-2 py-1.5 text-right tabular-nums">{fmtPercent(l.commission_pct) || '—'}</td>
                                   <td className="px-2 py-1.5 text-right tabular-nums font-medium">{fmtMoney(l.commission_amount) || '—'}</td>
                                 </tr>
                               ))}
@@ -736,7 +762,7 @@ const EventsView: React.FC<{
           <tfoot className="bg-gray-50 border-t-2 border-gray-300">
             <tr>
               <td colSpan={8} className="px-3 py-2 text-right text-xs uppercase tracking-wider font-semibold text-gray-700">
-                Total ({sortedEvents.length} {sortedEvents.length === 1 ? 'booking' : 'bookings'})
+                {totalLabel} ({sortedEvents.length} {sortedEvents.length === 1 ? 'booking' : 'bookings'})
               </td>
               <td className="px-3 py-2 text-right font-bold tabular-nums text-gray-900">
                 {fmtMoney(grandTotal) || '—'}
@@ -882,7 +908,7 @@ const ExpandedView: React.FC<{
                 <td className="px-2 py-1.5 whitespace-nowrap">{fmtDate(l.arrival_date) || '—'}</td>
                 <td className="px-2 py-1.5 whitespace-nowrap">{fmtDate(l.depart_date) || '—'}</td>
                 <td className="px-2 py-1.5 text-right tabular-nums">{fmtMoney(l.revenue) || '—'}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{l.commission_pct ? `${Number(l.commission_pct)}%` : '—'}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums">{fmtPercent(l.commission_pct) || '—'}</td>
                 <td className="px-2 py-1.5 text-right tabular-nums font-medium">{fmtMoney(l.commission_amount) || '—'}</td>
                 <td className="px-2 py-1.5">
                   <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium ${PAYMENT_STATUS_BADGE[l.payment_status]}`}>

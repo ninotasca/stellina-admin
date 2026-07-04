@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   cventTrackerApi,
   type CventTrackerView,
@@ -33,6 +33,7 @@ const downloadFilename = (bookingName: string, uploadedAtIso: string, suffix = '
 };
 
 const CventResponsesCard: React.FC<Props> = ({ eventId, bookingName }) => {
+  const navigate = useNavigate();
   const [tracker, setTracker] = useState<CventTrackerView | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -46,12 +47,17 @@ const CventResponsesCard: React.FC<Props> = ({ eventId, bookingName }) => {
     try {
       const t = await cventTrackerApi.get(eventId);
       setTracker(t);
+      // Phase 5: if there's a pending merge, drag the user into it. The
+      // Master is "locked" until they complete the merge.
+      if (t?.pending_merge_job_id) {
+        navigate(`/commissions/${eventId}/cvent-merge/${t.pending_merge_job_id}`);
+      }
     } catch (e: any) {
       setError(e?.response?.data?.detail || e.message || 'Failed to load Excel files');
     } finally {
       setLoading(false);
     }
-  }, [eventId]);
+  }, [eventId, navigate]);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -60,6 +66,10 @@ const CventResponsesCard: React.FC<Props> = ({ eventId, bookingName }) => {
     try {
       const updated = await cventTrackerApi.upload(eventId, file);
       setTracker(updated);
+      // A re-upload spawns a merge job — go straight to the conflict page.
+      if (updated.pending_merge_job_id) {
+        navigate(`/commissions/${eventId}/cvent-merge/${updated.pending_merge_job_id}`);
+      }
     } catch (e: any) {
       setError(e?.response?.data?.detail || e.message || 'Upload failed');
     } finally {
@@ -110,26 +120,19 @@ const CventResponsesCard: React.FC<Props> = ({ eventId, bookingName }) => {
   };
 
   const uploads = tracker?.uploads ?? [];
+  const droppedVenues = tracker?.dropped_venues ?? [];
 
-  // Group originals + their masters. Each "group" renders as one parent row
-  // (the immutable Cvent original) with one indented child (the editable
-  // master). Legacy uploads that pre-date the two-file model show alone.
-  const groups = (() => {
-    const originals = uploads.filter((u) => u.source === 'cvent');
-    const mastersByParent = new Map<string, CventUpload>();
-    for (const u of uploads) {
-      if (u.source === 'master' && u.parent_upload_id) {
-        mastersByParent.set(u.parent_upload_id, u);
-      }
-    }
-    return originals.map((o) => ({ original: o, master: mastersByParent.get(o.id) ?? null }));
-  })();
+  // Phase 5: there's one living Master per tracker (not per original).
+  // Render all cvent originals as their own rows, and the single Master
+  // once at the top.
+  const originals = uploads.filter((u) => u.source === 'cvent');
+  const master = uploads.find((u) => u.source === 'master') ?? null;
 
   return (
     <div className="rounded-md bg-amber-50 ring-1 ring-amber-100 p-3">
       <div className="flex items-baseline justify-between mb-2">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-amber-700">
-          Excel Files ({groups.length})
+          Excel Files
         </span>
       </div>
 
@@ -151,65 +154,82 @@ const CventResponsesCard: React.FC<Props> = ({ eventId, bookingName }) => {
         <p className="text-xs text-amber-700/70 italic">Loading…</p>
       ) : (
         <>
-          {groups.length > 0 && (
-            <ul className="divide-y divide-amber-100 mb-2">
-              {groups.map(({ original, master }) => (
-                <li key={original.id} className="py-2 space-y-1.5">
-                  {/* Parent: Cvent original — immutable. Download only. */}
-                  <div className="flex items-center justify-between gap-3">
+          {/* Master — the single living document for this tracker. */}
+          {master && (
+            <div className="mb-2 p-2 rounded bg-amber-100/50 ring-1 ring-amber-200">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-baseline gap-2 min-w-0 text-sm">
+                  <span className="font-medium text-gray-900 truncate">Master</span>
+                  <span className="text-gray-400">·</span>
+                  <span className="text-gray-600 whitespace-nowrap">auto-styled</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-200 text-amber-800 whitespace-nowrap">editable</span>
+                </div>
+                <div className="flex gap-1.5 shrink-0">
+                  <Link
+                    to={`/commissions/${eventId}/cvent/${master.id}`}
+                    className="px-2.5 py-1 text-xs font-medium text-amber-700 bg-white border border-amber-300 rounded hover:bg-amber-100"
+                  >
+                    View
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => handleDownload(master)}
+                    className="px-2.5 py-1 text-xs font-medium text-amber-700 bg-white border border-amber-300 rounded hover:bg-amber-100"
+                  >
+                    Download
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Cvent originals — one per re-upload, immutable. Download only. */}
+          {originals.length > 0 && (
+            <div className="mb-2">
+              <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">
+                Cvent originals ({originals.length})
+              </div>
+              <ul className="divide-y divide-gray-100">
+                {originals.map((o) => (
+                  <li key={o.id} className="py-2 flex items-center justify-between gap-3">
                     <div className="flex items-baseline gap-2 min-w-0 text-sm">
-                      <span className="font-medium text-gray-900 truncate">{original.original_filename}</span>
+                      <span className="font-medium text-gray-900 truncate">{o.original_filename}</span>
                       <span className="text-gray-400">·</span>
-                      <span className="text-gray-600 whitespace-nowrap">Cvent original</span>
-                      <span className="text-gray-400">·</span>
-                      <span className="text-gray-500 whitespace-nowrap">{formatDateTime(original.uploaded_at)}</span>
+                      <span className="text-gray-500 whitespace-nowrap">{formatDateTime(o.uploaded_at)}</span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 whitespace-nowrap">read-only</span>
                     </div>
-                    <div className="flex gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => handleDownload(original)}
-                        className="px-2.5 py-1 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50"
-                      >
-                        Download
-                      </button>
-                    </div>
-                  </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDownload(o)}
+                      className="px-2.5 py-1 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 shrink-0"
+                    >
+                      Download
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
-                  {/* Child: Master — auto-generated, editable. View + Download. */}
-                  {master ? (
-                    <div className="flex items-center justify-between gap-3 pl-5 border-l-2 border-amber-300">
-                      <div className="flex items-baseline gap-2 min-w-0 text-sm">
-                        <span className="text-amber-700/80">↳</span>
-                        <span className="font-medium text-gray-900 truncate">Master</span>
-                        <span className="text-gray-400">·</span>
-                        <span className="text-gray-600 whitespace-nowrap">auto-styled</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-200 text-amber-800 whitespace-nowrap">editable</span>
-                      </div>
-                      <div className="flex gap-1.5 shrink-0">
-                        <Link
-                          to={`/commissions/${eventId}/cvent/${master.id}`}
-                          className="px-2.5 py-1 text-xs font-medium text-amber-700 bg-white border border-amber-300 rounded hover:bg-amber-100"
-                        >
-                          View
-                        </Link>
-                        <button
-                          type="button"
-                          onClick={() => handleDownload(master)}
-                          className="px-2.5 py-1 text-xs font-medium text-amber-700 bg-white border border-amber-300 rounded hover:bg-amber-100"
-                        >
-                          Download
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="pl-5 text-[11px] text-amber-700/60 italic border-l-2 border-amber-200">
-                      ↳ Master not generated for this upload (legacy data — reset & re-upload to create one).
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
+          {/* Dropped from Cvent — venues that disappeared in a re-upload. */}
+          {droppedVenues.length > 0 && (
+            <div className="mb-2 mt-2 pt-2 border-t border-amber-200">
+              <div className="text-[10px] uppercase tracking-wider text-red-700 mb-1">
+                Dropped from Cvent ({droppedVenues.length})
+              </div>
+              <ul className="text-xs text-gray-700 space-y-1">
+                {droppedVenues.map((d) => (
+                  <li key={d.id} className="flex items-baseline gap-2">
+                    <span className="text-gray-400">·</span>
+                    <span className="font-medium">{d.venue_label}</span>
+                    <span className="text-gray-500">on {d.sheet_name}</span>
+                    <span className="text-[10px] text-gray-400">
+                      {new Date(d.dropped_at).toLocaleDateString()}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
 
           {/* Drop-zone — always available so a new file can land at any time. */}

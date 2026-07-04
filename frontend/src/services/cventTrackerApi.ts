@@ -67,6 +67,16 @@ export interface CventUploadDetail extends CventUpload {
   sheets: CventSheetWithCells[];
 }
 
+export interface CventDroppedVenue {
+  id: string;
+  tracker_id: string;
+  merge_job_id: string;
+  sheet_name: string;
+  venue_label: string;
+  snapshot_cells: Array<{ row: number; col: number; value: string | null }>;
+  dropped_at: string;
+}
+
 export interface CventTrackerView {
   id: string;
   event_id: string;
@@ -74,6 +84,57 @@ export interface CventTrackerView {
   created_at: string;
   reset_at: string | null;
   uploads: CventUpload[];
+  pending_merge_job_id: string | null;
+  dropped_venues: CventDroppedVenue[];
+}
+
+// ---------- Phase 5: merge jobs / conflicts ----------
+
+export type ConflictResolution = 'keep_mine' | 'take_new' | 'show_both';
+
+export interface CventCellConflict {
+  id: string;
+  merge_job_id: string;
+  master_sheet_id: string;
+  row_idx: number;
+  col_idx: number;
+  old_cvent_value: string | null;
+  new_cvent_value: string | null;
+  master_value: string | null;
+  master_value_html: string | null;
+  venue_label: string | null;
+  resolution: ConflictResolution | null;
+  resolved_at: string | null;
+  created_at: string;
+}
+
+export interface CventVenueMatchProposal {
+  id: string;
+  merge_job_id: string;
+  sheet_name: string;
+  old_venue_label: string;
+  new_venue_label: string;
+  confidence: string;  // Decimal arrives as string
+  accepted: boolean | null;
+  resolved_at: string | null;
+  created_at: string;
+}
+
+export interface CventMergeJobDetail {
+  id: string;
+  tracker_id: string;
+  new_upload_id: string;
+  previous_upload_id: string | null;
+  cells_unchanged: number;
+  cells_auto_applied: number;
+  venues_added: number;
+  venues_dropped: number;
+  venues_renamed: number;
+  created_at: string;
+  completed_at: string | null;
+  pending_match_proposals: CventVenueMatchProposal[];
+  unresolved_conflicts: CventCellConflict[];
+  resolved_conflicts: CventCellConflict[];
 }
 
 export const cventTrackerApi = {
@@ -109,6 +170,41 @@ export const cventTrackerApi = {
       `/commissions/${eventId}/cvent-tracker/uploads/${uploadId}`,
     );
     return res.data;
+  },
+
+  // ---------- Phase 5: merge jobs / conflicts ----------
+
+  getMergeJob: async (eventId: string, mergeJobId: string): Promise<CventMergeJobDetail> => {
+    const res = await apiClient.get(
+      `/commissions/${eventId}/cvent-tracker/merge-jobs/${mergeJobId}`,
+    );
+    return res.data;
+  },
+
+  resolveConflict: async (
+    eventId: string, conflictId: string, resolution: ConflictResolution,
+  ): Promise<CventCellConflict> => {
+    const res = await apiClient.post(
+      `/commissions/${eventId}/cvent-tracker/conflicts/${conflictId}/resolve`,
+      { resolution },
+    );
+    return res.data;
+  },
+
+  resolveMatchProposal: async (
+    eventId: string, proposalId: string, accepted: boolean,
+  ): Promise<CventVenueMatchProposal> => {
+    const res = await apiClient.post(
+      `/commissions/${eventId}/cvent-tracker/match-proposals/${proposalId}/resolve`,
+      { accepted },
+    );
+    return res.data;
+  },
+
+  completeMergeJob: async (eventId: string, mergeJobId: string): Promise<void> => {
+    await apiClient.post(
+      `/commissions/${eventId}/cvent-tracker/merge-jobs/${mergeJobId}/complete`,
+    );
   },
 
   /** Edit one cell on a master upload. Returns the resulting (upserted)
