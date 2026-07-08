@@ -19,8 +19,11 @@ import type {
 } from '../types/commission';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3501/api/v1/stellina';
+const INCLUDE_TEST_BOOKINGS = import.meta.env.VITE_ENABLE_TEST_BOOKINGS === 'true';
 
 const getAuthToken = () => localStorage.getItem('access_token');
+
+const testBookingParams = () => (INCLUDE_TEST_BOOKINGS ? { include_test_bookings: true } : undefined);
 
 const apiClient = axios.create({ baseURL: API_BASE_URL });
 apiClient.interceptors.request.use((config) => {
@@ -42,11 +45,11 @@ export interface ProjectionParams {
 export const commissionApi = {
   // Events
   listEvents: async (): Promise<CommissionEventWithLineItems[]> => {
-    const res = await apiClient.get('/commissions/events');
+    const res = await apiClient.get('/commissions/events', { params: testBookingParams() });
     return res.data;
   },
   getEvent: async (id: string): Promise<CommissionEventWithLineItems> => {
-    const res = await apiClient.get(`/commissions/events/${id}`);
+    const res = await apiClient.get(`/commissions/events/${id}`, { params: testBookingParams() });
     return res.data;
   },
   createEvent: async (payload: CommissionEventCreate): Promise<CommissionEventWithLineItems> => {
@@ -114,7 +117,7 @@ export const commissionApi = {
 
   // Points (rewards / loyalty)
   listAllPoints: async (): Promise<CommissionPointsRow[]> => {
-    const res = await apiClient.get('/commissions/points');
+    const res = await apiClient.get('/commissions/points', { params: testBookingParams() });
     return res.data;
   },
   listEventPoints: async (eventId: string): Promise<CommissionPoints[]> => {
@@ -156,6 +159,7 @@ export const commissionApi = {
     if (params.weight_definite !== undefined) search.set('weight_definite', String(params.weight_definite));
     if (params.weight_tentative !== undefined) search.set('weight_tentative', String(params.weight_tentative));
     if (params.weight_prospect !== undefined) search.set('weight_prospect', String(params.weight_prospect));
+    if (INCLUDE_TEST_BOOKINGS) search.set('include_test_bookings', 'true');
     const qs = search.toString();
     const res = await apiClient.get(`/commissions/projections${qs ? `?${qs}` : ''}`);
     return res.data;
