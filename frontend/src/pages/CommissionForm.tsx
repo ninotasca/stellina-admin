@@ -17,6 +17,8 @@ import type {
   PaymentStatus,
 } from '../types/commission';
 
+const TEST_BOOKINGS_ENABLED = import.meta.env.VITE_ENABLE_TEST_BOOKINGS === 'true';
+
 // ---------- Booking status ----------
 
 const BOOKING_STATUS_OPTIONS: { value: BookingStatus; label: string; color: string; description: string }[] = [
@@ -168,6 +170,7 @@ const CommissionForm: React.FC = () => {
   // Points (rewards / loyalty) — owner flag + per-entry rows
   const [canEarnPoints, setCanEarnPoints] = useState(false);
   const [pointsList, setPointsList] = useState<DraftPoint[]>([]);
+  const [isTestBooking, setIsTestBooking] = useState(false);
 
   // Server-only data (only meaningful for persisted events)
   const [hotelsConsidered, setHotelsConsidered] = useState<HotelConsidered[]>([]);
@@ -191,6 +194,7 @@ const CommissionForm: React.FC = () => {
   // Track the booking status as it was last saved on the server, so we can
   // detect meaningful transitions on save and trigger an interstitial.
   const priorBookingStatusRef = useRef<BookingStatus | null>(null);
+  const initialIsTestBookingRef = useRef(false);
   const [interstitial, setInterstitial] =
     useState<{ variant: InterstitialVariant; targetEventId: string } | null>(null);
 
@@ -243,6 +247,8 @@ const CommissionForm: React.FC = () => {
           ev.line_items.length === 0 ? [] : ev.line_items.map((li) => liToDraft(li, ev.arrival_date, ev.depart_date))
         );
         setCanEarnPoints(!!ev.can_earn_points);
+        setIsTestBooking(!!ev.is_test_booking);
+        initialIsTestBookingRef.current = !!ev.is_test_booking;
         setPointsList((ev.points || []).map((p) => ({
           _id: p.id, _persisted: true,
           point_type: p.point_type || '',
@@ -562,7 +568,25 @@ const CommissionForm: React.FC = () => {
     if (v) { setError(v); return; }
     setSaving(true);
     try {
-      const eventBody = {
+      const eventBody: {
+        meeting_name: string;
+        booking_status: BookingStatus;
+        destinations: string[];
+        destination: string | null;
+        arrival_date: string | null;
+        depart_date: string | null;
+        dates_flexible: boolean;
+        considerations: ConsiderationType[];
+        peak_rooms: number | null;
+        total_room_nights: number | null;
+        client_company_id: string | null;
+        client_company_name: string | null;
+        primary_contact_id: string | null;
+        primary_contact_name: string | null;
+        primary_contact_email: string | null;
+        can_earn_points: boolean;
+        is_test_booking?: boolean;
+      } = {
         meeting_name: meetingName.trim(),
         booking_status: bookingStatus,
         destinations,
@@ -581,6 +605,9 @@ const CommissionForm: React.FC = () => {
         primary_contact_email: contact.email || null,
         can_earn_points: canEarnPoints,
       };
+      if (TEST_BOOKINGS_ENABLED && (isTestBooking || initialIsTestBookingRef.current)) {
+        eventBody.is_test_booking = isTestBooking;
+      }
 
       // Build points payload (only non-empty rows when can_earn_points is on)
       const pointPayloads = canEarnPoints
@@ -849,20 +876,39 @@ const CommissionForm: React.FC = () => {
             </div>
           </section>
 
-          {/* ===== Points eligibility flag ===== */}
-          <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <label className="inline-flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={canEarnPoints}
-                onChange={(e) => setCanEarnPoints(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-sm font-medium text-gray-800">I can earn points</span>
-            </label>
-            {canEarnPoints && (
-              <p className="mt-1 text-xs text-gray-500 ml-6">Tracks rewards / loyalty points earned from this booking. Add entries in the Points section below.</p>
+          {/* ===== Booking flags ===== */}
+          <section className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-3">
+            {TEST_BOOKINGS_ENABLED && (
+              <div>
+                <label className="inline-flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isTestBooking}
+                    onChange={(e) => setIsTestBooking(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                  />
+                  <span className="text-sm font-medium text-gray-800">Test booking</span>
+                </label>
+                <p className="mt-1 text-xs text-gray-500 ml-6">
+                  Visible only when test bookings are enabled locally. Hidden from production reports by default.
+                </p>
+              </div>
             )}
+
+            <div>
+              <label className="inline-flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={canEarnPoints}
+                  onChange={(e) => setCanEarnPoints(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm font-medium text-gray-800">I can earn points</span>
+              </label>
+              {canEarnPoints && (
+                <p className="mt-1 text-xs text-gray-500 ml-6">Tracks rewards / loyalty points earned from this booking. Add entries in the Points section below.</p>
+              )}
+            </div>
           </section>
 
           {/* ===== Company & Primary Contact ===== */}

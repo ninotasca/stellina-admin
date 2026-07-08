@@ -103,6 +103,7 @@ export interface CommissionEvent {
   peak_rooms: number | null;
   total_room_nights: number | null;
   can_earn_points: boolean;
+  is_test_booking: boolean;
   booked_at: string | null;
   created_at: string;
   updated_at: string;
@@ -161,6 +162,7 @@ export interface CommissionEventCreate {
   peak_rooms?: number | null;
   total_room_nights?: number | null;
   can_earn_points?: boolean;
+  is_test_booking?: boolean;
   line_items?: CommissionLineItemCreate[];
 }
 
@@ -182,6 +184,7 @@ export interface CommissionEventUpdate {
   peak_rooms?: number | null;
   total_room_nights?: number | null;
   can_earn_points?: boolean;
+  is_test_booking?: boolean;
 }
 
 export interface ProjectionBucket {
