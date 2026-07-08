@@ -147,7 +147,7 @@ class ApiClient {
   }
 
   async downloadSqliteBackup(): Promise<Blob> {
-    const response = await this.stellinaClient.get('/backup/sqlite', {
+    const response = await this.coreClient.get('/backups/stellina/sqlite', {
       responseType: 'blob',
     });
     return response.data;
