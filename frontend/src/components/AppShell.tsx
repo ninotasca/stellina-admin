@@ -107,6 +107,7 @@ const AppShell: React.FC = () => {
                 </div>
                 <nav className="py-1">
                   <MenuItem onClick={() => { setMenuOpen(false); navigate('/nimble'); }}>Nimble CRM</MenuItem>
+                  <MenuItem onClick={() => { setMenuOpen(false); navigate('/backup'); }}>Database Backup</MenuItem>
                   <MenuItem onClick={() => { setMenuOpen(false); navigate('/login-attempts'); }}>Access Control</MenuItem>
                   <MenuItem onClick={() => { setMenuOpen(false); navigate('/account'); }}>My Account</MenuItem>
                   <div className="border-t border-gray-100 my-1" />

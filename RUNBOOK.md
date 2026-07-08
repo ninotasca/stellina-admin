@@ -13,8 +13,15 @@ From the repository root:
 Expected URLs:
 
 - Frontend: http://localhost:3402
-- Backend health: http://localhost:3501/health
-- Backend docs: http://localhost:3501/docs
+- Backend health when using Docker: http://localhost:3401/health
+- Backend docs when using Docker: http://localhost:3401/docs
+
+Docker maps the backend container's internal port `3501` to host port `3401`.
+The frontend's checked-in `.env` uses `3401` so browser requests from
+http://localhost:3402 reach the published backend port.
+
+For non-Docker local startup, the helper script runs the backend directly on
+host port `3501` and passes matching frontend API overrides.
 
 ## Why This Script Exists
 

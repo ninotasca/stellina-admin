@@ -24,6 +24,7 @@ import CventUploadView from './pages/CventUploadView';
 import CventMergePage from './pages/CventMergePage';
 import NimblePage from './pages/NimblePage';
 import PointsTracker from './pages/PointsTracker';
+import Backup from './pages/Backup';
 
 function App() {
   const adminShell = (
@@ -95,6 +96,7 @@ function App() {
             <Route path="/commissions/projections" element={<CommissionProjections />} />
 
             <Route path="/nimble" element={<NimblePage />} />
+            <Route path="/backup" element={<Backup />} />
             <Route path="/points" element={<PointsTracker />} />
           </Route>
 

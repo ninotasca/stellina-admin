@@ -145,6 +145,13 @@ class ApiClient {
   async deleteAllowedGoogleAccount(accountId: string): Promise<void> {
     await this.coreClient.delete(`/auth/allowed-google-accounts/${accountId}`);
   }
+
+  async downloadSqliteBackup(): Promise<Blob> {
+    const response = await this.stellinaClient.get('/backup/sqlite', {
+      responseType: 'blob',
+    });
+    return response.data;
+  }
 }
 
 export const apiClient = new ApiClient();
