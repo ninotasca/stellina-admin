@@ -58,10 +58,11 @@ function deriveStage(bookingStatus: string, paymentStatus: PaymentStatus): Stage
 // ---------- Period helpers ----------
 
 type Grouping = 'month' | 'quarter' | 'year';
-type DateBasis = 'start_date' | 'booked_at' | 'paid_date';
+type DateBasis = 'start_date' | 'end_date' | 'booked_at' | 'paid_date';
 
 const DATE_BASIS_LABEL: Record<DateBasis, string> = {
   start_date: 'Start Date',
+  end_date: 'End Date',
   booked_at: 'Date Booked',
   paid_date: 'Date Commission Paid',
 };
@@ -167,7 +168,9 @@ const CommissionDashboard: React.FC = () => {
             ? ev.booked_at
             : dateBasis === 'paid_date'
               ? li.paid_date
-              : li.arrival_date;
+              : dateBasis === 'end_date'
+                ? li.depart_date
+                : li.arrival_date;
         out.push({
           ...li,
           event: ev,
@@ -355,6 +358,7 @@ const CommissionDashboard: React.FC = () => {
                     className="px-3 py-1.5 border border-gray-300 rounded-md text-sm w-full"
                   >
                     <option value="start_date">Start Date</option>
+                    <option value="end_date">End Date</option>
                     <option value="booked_at">Date Booked</option>
                     <option value="paid_date">Date Commission Paid</option>
                   </select>
