@@ -73,7 +73,7 @@ const CventMergePage: React.FC = () => {
     setBusy(true);
     try {
       await cventTrackerApi.completeMergeJob(eventId, mergeJobId);
-      navigate(`/commissions/${eventId}`);
+      navigate(`/commissions/${eventId}/hotel-comparison`);
     } catch (e: any) {
       setError(e?.response?.data?.detail || e.message || 'Failed to complete');
       setBusy(false);
@@ -86,7 +86,7 @@ const CventMergePage: React.FC = () => {
       <div className="max-w-3xl mx-auto p-8">
         <div className="p-4 bg-red-50 border border-red-200 rounded text-sm text-red-700">{error}</div>
         <button onClick={() => navigate(`/commissions/${eventId}`)} className="mt-4 text-sm text-blue-600 hover:underline">
-          ← Back to booking
+          ← Back to Hotel Comparison Summary
         </button>
       </div>
     );
@@ -102,10 +102,10 @@ const CventMergePage: React.FC = () => {
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between gap-3">
         <div className="flex items-baseline gap-3">
           <h1 className="text-base font-semibold text-gray-900">
-            Merge Cvent re-upload
+            Review Hotel Comparison Summary re-upload
           </h1>
           <span className="text-xs text-gray-500">
-            into your Master tracker
+            before it updates the editable summary
           </span>
         </div>
         <button
@@ -139,10 +139,10 @@ const CventMergePage: React.FC = () => {
         {proposals.length > 0 && (
           <section className="bg-white rounded-lg shadow-sm border border-amber-200 p-4">
             <h2 className="text-sm font-semibold text-amber-700 uppercase tracking-wider mb-2">
-              Did Cvent rename these venues? ({proposals.length})
+              Did the source file rename these hotels? ({proposals.length})
             </h2>
             <p className="text-xs text-gray-500 mb-3">
-              Claude wasn't sure these are the same venue. Confirm so the diff can use them as one.
+              The matcher was not sure these are the same hotel. Confirm so the comparison can use them as one.
             </p>
             <ul className="divide-y divide-gray-100">
               {proposals.map((p) => (
@@ -187,7 +187,7 @@ const CventMergePage: React.FC = () => {
               Cell conflicts ({unresolved.length})
             </h2>
             <p className="text-xs text-gray-500 mb-3">
-              You edited these cells and Cvent's new file also changes them. Pick one.
+              You edited these cells and the new source file also changes them. Pick one.
             </p>
             <ul className="space-y-3">
               {unresolved.map((c) => (
@@ -209,7 +209,7 @@ const CventMergePage: React.FC = () => {
                       busy={busy}
                     />
                     <ConflictChoice
-                      label="Cvent's new value"
+                      label="New source value"
                       value={c.new_cvent_value}
                       onPick={() => handleResolve(c, 'take_new')}
                       tone="blue"
@@ -222,11 +222,11 @@ const CventMergePage: React.FC = () => {
                     onClick={() => handleResolve(c, 'show_both')}
                     className="mt-2 px-2.5 py-1 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40"
                   >
-                    Keep both (yours then Cvent's, separated by a newline)
+                    Keep both (yours then the new source value, separated by a newline)
                   </button>
                   {c.old_cvent_value && (
                     <div className="mt-2 text-[10px] text-gray-400">
-                      old Cvent value (for reference): {c.old_cvent_value}
+                      old source value (for reference): {c.old_cvent_value}
                     </div>
                   )}
                 </li>
@@ -237,7 +237,7 @@ const CventMergePage: React.FC = () => {
           <section className="bg-white rounded-lg shadow-sm border border-emerald-200 p-4">
             <h2 className="text-sm font-semibold text-emerald-700 uppercase tracking-wider">No conflicts</h2>
             <p className="text-sm text-gray-700 mt-1">
-              Cvent's changes have been auto-applied to your Master. Hit "Complete merge" to return to the booking.
+              Source-file changes have been auto-applied to the editable summary. Hit "Complete merge" to return.
             </p>
           </section>
         )}

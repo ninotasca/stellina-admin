@@ -35,6 +35,11 @@ The helper script uses the path verified on June 24, 2026:
   - `VITE_API_URL=http://localhost:3501/api/v1/stellina`
   - `VITE_CORE_API_URL=http://localhost:3501/api/v1/core`
 
+The backend uses the primary Unoventi Supabase project for both modules. Set
+`CORE_DATABASE_SCHEMA=uno_core` and
+`STELLINA_DATABASE_SCHEMA=uno_stellina`. A legacy
+`ADDITIONAL_DATABASES.stellina` entry is not used for normal Stellina access.
+
 ## If It Fails
 
 - If the backend virtualenv is missing, run this from `backend/`:

@@ -968,7 +968,7 @@ const RFPInfoCard: React.FC<{
         )}
       </div>
 
-      {/* Excel files — Cvent responses uploaded for this booking */}
+      {/* Hotel comparison summary lives on its own workflow page. */}
       <CventResponsesCard eventId={event.id} bookingName={bookingName} />
     </section>
   );

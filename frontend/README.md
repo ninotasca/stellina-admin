@@ -71,3 +71,8 @@ export default defineConfig([
   },
 ])
 ```
+# Stellina frontend
+
+The frontend API contract remains `/api/v1/stellina/...` plus shared
+`/api/v1/core/...` endpoints. Database schema selection is backend-only; no
+separate Stellina Supabase credentials belong in the frontend environment.

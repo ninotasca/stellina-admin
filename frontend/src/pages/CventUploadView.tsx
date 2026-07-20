@@ -188,17 +188,17 @@ const CventUploadView: React.FC = () => {
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between gap-3 shrink-0">
         <div className="flex items-baseline gap-3 min-w-0">
           <button
-            onClick={() => navigate(`/commissions/${eventId}`)}
+            onClick={() => navigate(`/commissions/${eventId}/hotel-comparison`)}
             className="text-sm text-blue-600 hover:underline shrink-0"
           >
-            ← Back to booking
+            ← Back to Hotel Comparison Summary
           </button>
           <span className="text-gray-400 shrink-0">/</span>
           <h1 className="text-base font-semibold text-gray-900 truncate">
-            {upload.original_filename}
+            Hotel Comparison Summary
           </h1>
           <span className="text-gray-400 shrink-0">·</span>
-          <span className="text-sm text-gray-500 shrink-0">{formatDateTime(upload.uploaded_at)}</span>
+          <span className="text-sm text-gray-500 shrink-0">{upload.original_filename} · {formatDateTime(upload.uploaded_at)}</span>
         </div>
 
         {/* File-kind badge: replaces the old render-mode toggle. */}
@@ -209,7 +209,7 @@ const CventUploadView: React.FC = () => {
               : 'bg-gray-200 text-gray-700'
           }`}
         >
-          {upload.source === 'master' ? 'MASTER · editable' : 'CVENT ORIGINAL · read-only'}
+          {upload.source === 'master' ? 'EDITABLE SUMMARY' : 'SOURCE UPLOAD · read-only'}
         </span>
       </header>
 

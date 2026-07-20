@@ -25,6 +25,8 @@ import CventMergePage from './pages/CventMergePage';
 import NimblePage from './pages/NimblePage';
 import PointsTracker from './pages/PointsTracker';
 import Backup from './pages/Backup';
+import HotelComparisonSummaryPage from './pages/HotelComparisonSummaryPage';
+import HotelComparisons from './pages/HotelComparisons';
 
 function App() {
   const adminShell = (
@@ -52,7 +54,7 @@ function App() {
             }
           />
 
-          {/* Full-screen Cvent Excel viewer (Phase 2 read-only spreadsheet) */}
+          {/* Full-screen Hotel Comparison Summary spreadsheet viewer */}
           <Route
             path="/commissions/:id/cvent/:uploadId"
             element={
@@ -62,7 +64,7 @@ function App() {
             }
           />
 
-          {/* Cvent re-upload merge / conflict resolution (Phase 5) */}
+          {/* Hotel Comparison Summary re-upload merge / conflict resolution */}
           <Route
             path="/commissions/:id/cvent-merge/:mergeJobId"
             element={
@@ -88,9 +90,11 @@ function App() {
             <Route path="/site-selection/:id/edit" element={<SiteSelectionFormBuilder />} />
             <Route path="/site-selection/:id/responses" element={<SiteSelectionResponses />} />
 
+            <Route path="/hotel-comparisons" element={<HotelComparisons />} />
             <Route path="/commissions" element={<CommissionDashboard />} />
             <Route path="/commissions/list" element={<CommissionList />} />
             <Route path="/commissions/new" element={<CommissionForm />} />
+            <Route path="/commissions/:id/hotel-comparison" element={<HotelComparisonSummaryPage />} />
             <Route path="/commissions/:id/edit" element={<CommissionForm />} />
             <Route path="/commissions/:id" element={<CommissionView />} />
             <Route path="/commissions/projections" element={<CommissionProjections />} />

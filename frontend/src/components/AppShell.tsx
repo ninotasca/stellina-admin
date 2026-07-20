@@ -13,6 +13,7 @@ const NAV: NavItem[] = [
   { to: '/dashboard', label: 'Home', end: true },
   { to: '/commissions', label: 'Commission Tracker', end: true },
   { to: '/commissions/list', label: 'Bookings' },
+  { to: '/hotel-comparisons', label: 'Hotel Comparisons' },
   { to: '/points', label: 'Points Tracker' },
   { to: '/rfps', label: 'RFPs' },
   { to: '/site-selection', label: 'Site Selection' },
