@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { nimbleApi, nimbleEntityUrl, type NimbleContact, type NimbleDeal, type NimbleListResponse, type NimbleRecordType } from '../services/nimbleApi';
 import NimbleLink from '../components/NimbleLink';
+import { formatWholeDollars } from '../utils/currency';
 import { parseLocalDate } from '../utils/date';
 
 type Tab = 'all' | 'person' | 'company' | 'deals';
@@ -244,7 +245,7 @@ const fmtMoney = (v: string | null | undefined): string => {
   if (!v) return '—';
   const n = Number(v);
   if (Number.isNaN(n)) return v;
-  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+  return formatWholeDollars(n);
 };
 
 const fmtDealDate = (v?: string | null): string => {

@@ -4,6 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts';
 import { commissionApi } from '../services/commissionApi';
+import { formatWholeDollars, formatWholeDollarsCompact } from '../utils/currency';
 import type {
   CommissionEventWithLineItems,
   CommissionLineItem,
@@ -113,12 +114,8 @@ function buildPeriodAxis(years: number[], g: Grouping): string[] {
   return out;
 }
 
-const fmtMoney0 = (n: number) =>
-  n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
-const fmtMoneyK = (n: number) => {
-  if (Math.abs(n) >= 1000) return `$${(n / 1000).toFixed(0)}k`;
-  return `$${n.toFixed(0)}`;
-};
+const fmtMoney0 = formatWholeDollars;
+const fmtMoneyK = formatWholeDollarsCompact;
 
 // ---------- Component ----------
 

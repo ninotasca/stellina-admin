@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../contexts/AuthContext';
 import { commissionApi } from '../services/commissionApi';
+import { formatWholeDollars, formatWholeDollarsCompact } from '../utils/currency';
 import { parseLocalDate } from '../utils/date';
 import type {
   CommissionEventWithLineItems,
@@ -54,13 +55,8 @@ type LineRow = { event: CommissionEventWithLineItems; line: CommissionLineItem; 
 
 // ---------- Formatters ----------
 
-const fmtMoney0 = (n: number) =>
-  n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
-
-const fmtMoneyK = (n: number) => {
-  if (Math.abs(n) >= 1000) return `$${(n / 1000).toFixed(0)}k`;
-  return `$${n.toFixed(0)}`;
-};
+const fmtMoney0 = formatWholeDollars;
+const fmtMoneyK = formatWholeDollarsCompact;
 
 const fmtDate = (v: string | null | undefined): string => {
   if (!v) return '—';
@@ -271,7 +267,7 @@ const Dashboard: React.FC = () => {
                 />
                 <LineGroup
                   title="Need attention"
-                  subtitle="Needs Invoice · Awaiting Payment"
+                  subtitle="One row per commission · Needs Invoice · Awaiting Payment"
                   tone="red"
                   rows={needAttention}
                   emptyText="All clear — nothing to invoice or chase."
@@ -358,14 +354,21 @@ const TONE_BANNER: Record<Tone, string> = {
   yellow: 'bg-yellow-50 text-yellow-900 border-y border-yellow-200',
 };
 
-const GroupHeader: React.FC<{ title: string; subtitle: string; tone: Tone; count: number; totalCommission: number }> = ({
-  title, subtitle, tone, count, totalCommission,
+const GroupHeader: React.FC<{
+  title: string;
+  subtitle: string;
+  tone: Tone;
+  count: number;
+  totalCommission: number;
+  itemLabel?: string;
+}> = ({
+  title, subtitle, tone, count, totalCommission, itemLabel = 'item',
 }) => (
   <div className={`px-5 py-2.5 flex items-baseline gap-2 ${TONE_BANNER[tone]}`}>
     <h4 className="text-xs font-semibold uppercase tracking-wider">{title}</h4>
     <span className="text-[11px] opacity-75">{subtitle}</span>
     <span className="ml-auto text-[11px] opacity-75 whitespace-nowrap">
-      {count} {count === 1 ? 'item' : 'items'}
+      {count} {itemLabel}{count === 1 ? '' : 's'}
     </span>
     <span className="text-[11px] font-semibold tabular-nums whitespace-nowrap">
       {fmtMoney0(totalCommission)}
@@ -408,7 +411,14 @@ const EventGroup: React.FC<EventGroupProps> = ({
 
   return (
     <div className="border-b border-gray-100 last:border-b-0">
-      <GroupHeader title={title} subtitle={subtitle} tone={tone} count={rows.length} totalCommission={totalCommission} />
+      <GroupHeader
+        title={title}
+        subtitle={subtitle}
+        tone={tone}
+        count={rows.length}
+        totalCommission={totalCommission}
+        itemLabel="booking"
+      />
       {rows.length === 0 ? (
         <p className="px-5 py-4 text-center text-sm text-gray-500">{emptyText}</p>
       ) : (
@@ -485,7 +495,14 @@ const LineGroup: React.FC<LineGroupProps> = ({
 
   return (
     <div className="border-b border-gray-100 last:border-b-0">
-      <GroupHeader title={title} subtitle={subtitle} tone={tone} count={rows.length} totalCommission={totalCommission} />
+      <GroupHeader
+        title={title}
+        subtitle={subtitle}
+        tone={tone}
+        count={rows.length}
+        totalCommission={totalCommission}
+        itemLabel="commission"
+      />
       {rows.length === 0 ? (
         <p className="px-5 py-4 text-center text-sm text-gray-500">{emptyText}</p>
       ) : (
@@ -496,7 +513,7 @@ const LineGroup: React.FC<LineGroupProps> = ({
               <tr>
                 <Th>Status</Th>
                 <Th>Meeting</Th>
-                <Th>Line</Th>
+                <Th>Commission</Th>
                 <Th>Start</Th>
                 <Th>End</Th>
                 <Th right>Total $</Th>
@@ -506,6 +523,12 @@ const LineGroup: React.FC<LineGroupProps> = ({
             <tbody className="divide-y divide-gray-100">
               {rows.map(({ badge, event, line, detail }, i) => {
                 const commissionTotal = num(line.commission_amount);
+                const commissionName = line.line_type === 'hotel'
+                  ? (line.resort_hotel || line.company_name)
+                  : line.company_name;
+                const commissionContext = line.line_type === 'hotel'
+                  ? (line.company_name && line.company_name !== commissionName ? line.company_name : null)
+                  : (line.resort_hotel && line.resort_hotel !== commissionName ? line.resort_hotel : null);
 
                 return (
                   <tr key={`${event.id}-${line.id}-${badge.label}-${i}`} className="hover:bg-gray-50">
@@ -528,9 +551,19 @@ const LineGroup: React.FC<LineGroupProps> = ({
                         </div>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-gray-700 truncate" title={`${line.line_type.toUpperCase()} · ${line.company_name}`}>
-                      <span className="font-medium uppercase tracking-wider text-[10px] text-gray-500 mr-1">{line.line_type}</span>
-                      {line.company_name}
+                    <td
+                      className="px-3 py-2 text-gray-700"
+                      title={[line.line_type.toUpperCase(), commissionName, commissionContext].filter(Boolean).join(' · ')}
+                    >
+                      <div className="flex items-baseline gap-1.5 min-w-0">
+                        <span className="font-semibold uppercase tracking-wider text-[10px] text-gray-500 shrink-0">
+                          {line.line_type}
+                        </span>
+                        <span className="font-medium truncate">{commissionName || 'Unnamed commission'}</span>
+                      </div>
+                      {commissionContext && (
+                        <div className="text-xs text-gray-500 truncate">{commissionContext}</div>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(line.arrival_date)}</td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{fmtDate(line.depart_date)}</td>

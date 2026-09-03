@@ -9,6 +9,7 @@ import CventResponsesCard from '../components/CventResponsesCard';
 import NimbleTypeahead, { type NimbleSelection, type PickerItem } from '../components/NimbleTypeahead';
 import CurrencyInput from '../components/CurrencyInput';
 import NimbleLink from '../components/NimbleLink';
+import { formatWholeDollars } from '../utils/currency';
 import { parseLocalDate } from '../utils/date';
 import type {
   BookingStatus,
@@ -109,7 +110,7 @@ const fmtMoney = (v: string | number | null | undefined): string => {
   if (v === null || v === undefined || v === '') return '$0';
   const n = typeof v === 'number' ? v : Number(v);
   if (Number.isNaN(n)) return '$0';
-  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+  return formatWholeDollars(n);
 };
 
 const fmtDate = (v: string | null | undefined, opts?: Intl.DateTimeFormatOptions): string => {

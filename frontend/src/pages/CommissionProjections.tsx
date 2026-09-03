@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { commissionApi, type ProjectionParams } from '../services/commissionApi';
+import { formatWholeDollars } from '../utils/currency';
 import type { BookingStatus, ProjectionSummary } from '../types/commission';
 
-const fmt = (v: string) => Number(v).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+const fmt = (v: string) => formatWholeDollars(Number(v));
 
 const CommissionProjections: React.FC = () => {
   const navigate = useNavigate();

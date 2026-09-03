@@ -6,6 +6,7 @@ import NimbleTypeahead, { type NimbleSelection, type PickerItem } from '../compo
 import NoteFeed from '../components/NoteFeed';
 import HotelsConsidered from '../components/HotelsConsidered';
 import CurrencyInput from '../components/CurrencyInput';
+import { formatWholeDollars } from '../utils/currency';
 import type {
   BookingStatus,
   CommissionLineItem,
@@ -1406,7 +1407,7 @@ const LineItemCard: React.FC<LineItemCardProps> = ({
     if (!v) return null;
     const n = Number(v);
     if (Number.isNaN(n)) return null;
-    return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+    return formatWholeDollars(n);
   };
   const summaryMoney = fmtMoney(summaryAmount);
 

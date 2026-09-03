@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { commissionApi } from '../services/commissionApi';
 import MultiSelect from '../components/MultiSelect';
 import { downloadCSV, timestampedFilename } from '../utils/csv';
+import { formatWholeDollars } from '../utils/currency';
 import { parseLocalDate } from '../utils/date';
 import type {
   CommissionEventWithLineItems,
@@ -77,7 +78,7 @@ const fmtMoney = (v: string | number | null | undefined): string => {
   if (v === null || v === undefined || v === '') return '';
   const n = num(v);
   if (Number.isNaN(n) || n === 0) return '';
-  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+  return formatWholeDollars(n);
 };
 
 const num = (v: string | number | null | undefined): number => {
