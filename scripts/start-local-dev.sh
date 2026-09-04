@@ -44,8 +44,7 @@ BACKEND_PID=$!
 echo "Starting frontend on http://localhost:${FRONTEND_PORT}"
 (
   cd "$FRONTEND_DIR"
-  VITE_API_URL="${BACKEND_URL}/api/v1/stellina" \
-  VITE_CORE_API_URL="${BACKEND_URL}/api/v1/core" \
+  STELLINA_API_PROXY_TARGET="${BACKEND_URL}" \
     npm run dev -- --host "$HOST" --port "$FRONTEND_PORT" --strictPort
 ) &
 FRONTEND_PID=$!

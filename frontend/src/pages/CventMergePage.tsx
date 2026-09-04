@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -34,7 +35,7 @@ const CventMergePage: React.FC = () => {
       const res = await cventTrackerApi.getMergeJob(eventId, mergeJobId);
       setDetail(res);
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e.message || 'Failed to load merge');
+      setError(getApiErrorMessage(e, 'Failed to load merge'));
     } finally {
       setLoading(false);
     }
@@ -49,7 +50,7 @@ const CventMergePage: React.FC = () => {
       await cventTrackerApi.resolveMatchProposal(eventId, p.id, accepted);
       await reload();
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e.message || 'Failed');
+      setError(getApiErrorMessage(e, 'Failed'));
     } finally {
       setBusy(false);
     }
@@ -62,7 +63,7 @@ const CventMergePage: React.FC = () => {
       await cventTrackerApi.resolveConflict(eventId, c.id, resolution);
       await reload();
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e.message || 'Failed');
+      setError(getApiErrorMessage(e, 'Failed'));
     } finally {
       setBusy(false);
     }
@@ -75,7 +76,7 @@ const CventMergePage: React.FC = () => {
       await cventTrackerApi.completeMergeJob(eventId, mergeJobId);
       navigate(`/commissions/${eventId}/hotel-comparison`);
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e.message || 'Failed to complete');
+      setError(getApiErrorMessage(e, 'Failed to complete'));
       setBusy(false);
     }
   };

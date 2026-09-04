@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { commissionApi } from '../services/commissionApi';
@@ -94,7 +95,7 @@ const SiteSelectionFormBuilder: React.FC = () => {
           setError('Missing booking reference.');
         }
       } catch (err: any) {
-        if (!cancelled) setError(err.response?.data?.detail || 'Failed to load site selection form');
+        if (!cancelled) setError(getApiErrorMessage(err, 'Failed to load site selection form'));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -191,7 +192,7 @@ const SiteSelectionFormBuilder: React.FC = () => {
         navigate(`/site-selection/${created.id}/edit`);
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to save site selection form');
+      setError(getApiErrorMessage(err, 'Failed to save site selection form'));
     } finally {
       setSaving(false);
     }

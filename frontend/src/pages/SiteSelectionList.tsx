@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { siteSelectionApi } from '../services/siteSelectionApi';
@@ -26,7 +27,7 @@ const SiteSelectionList: React.FC = () => {
       setError(null);
       setForms(await siteSelectionApi.listForms());
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to load site selection forms');
+      setError(getApiErrorMessage(err, 'Failed to load site selection forms'));
     } finally {
       setLoading(false);
     }

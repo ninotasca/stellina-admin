@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { commissionApi } from '../services/commissionApi';
@@ -214,7 +215,7 @@ const CommissionForm: React.FC = () => {
       await commissionApi.deleteEvent(id);
       navigate('/commissions/list');
     } catch (err: any) {
-      setDeleteError(err.response?.data?.detail || 'Failed to delete booking');
+      setDeleteError(getApiErrorMessage(err, 'Failed to delete booking'));
       setDeleting(false);
     }
   };
@@ -257,7 +258,7 @@ const CommissionForm: React.FC = () => {
           received: p.received,
         })));
       } catch (err: any) {
-        setError(err.response?.data?.detail || 'Failed to load booking');
+        setError(getApiErrorMessage(err, 'Failed to load booking'));
       } finally {
         setLoading(false);
       }
@@ -499,7 +500,7 @@ const CommissionForm: React.FC = () => {
     if (li._persisted && li._id) {
       if (!window.confirm('Delete this line item?')) return;
       try { await commissionApi.deleteLineItem(li._id); } catch (err: any) {
-        alert(err.response?.data?.detail || 'Failed to delete'); return;
+        alert(getApiErrorMessage(err, 'Failed to delete')); return;
       }
     }
     setLineItems((prev) => prev.filter((_, i) => i !== idx));
@@ -518,7 +519,7 @@ const CommissionForm: React.FC = () => {
     if (p._persisted && p._id) {
       if (!window.confirm('Delete this points entry?')) return;
       try { await commissionApi.deletePoint(p._id); } catch (err: any) {
-        alert(err.response?.data?.detail || 'Failed to delete'); return;
+        alert(getApiErrorMessage(err, 'Failed to delete')); return;
       }
     }
     setPointsList((prev) => prev.filter((_, i) => i !== idx));
@@ -697,7 +698,7 @@ const CommissionForm: React.FC = () => {
         navigate(`/commissions/${targetId}`);
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Save failed');
+      setError(getApiErrorMessage(err, 'Save failed'));
     } finally {
       setSaving(false);
     }

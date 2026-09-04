@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { rfpApi } from '../services/rfpApi';
@@ -143,7 +144,7 @@ const RFPForm: React.FC = () => {
           }
         }
       } catch (err: any) {
-        if (!cancelled) setError(err.response?.data?.detail || 'Failed to load');
+        if (!cancelled) setError(getApiErrorMessage(err, 'Failed to load'));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -234,7 +235,7 @@ const RFPForm: React.FC = () => {
 
       navigate(`/commissions/${eventId}`);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to save RFP');
+      setError(getApiErrorMessage(err, 'Failed to save RFP'));
       console.error(err);
     } finally {
       setLoading(false);
@@ -391,7 +392,7 @@ const RFPForm: React.FC = () => {
                     const att = await rfpApi.listAttachments(rfpIdParam);
                     setAttachments(att.map((a) => ({ id: a.id, filename: a.filename, size_bytes: a.size_bytes })));
                   } catch (err: any) {
-                    alert(`Upload failed: ${err.response?.data?.detail || err.message || ''}`);
+                    alert(`Upload failed: ${getApiErrorMessage(err, '')}`);
                   } finally {
                     setUploadingAttachment(false);
                     e.target.value = '';

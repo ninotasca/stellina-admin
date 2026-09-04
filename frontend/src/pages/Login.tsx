@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -33,7 +34,7 @@ const Login: React.FC = () => {
       login(response.access_token, response.user);
       navigate('/dashboard');
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Login failed. Please try again.');
+      setError(getApiErrorMessage(err, 'Login failed. Please try again.'));
       window.history.replaceState({}, document.title, '/login');
     } finally {
       setLoading(false);

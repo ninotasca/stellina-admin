@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { createApiClient, STELLINA_API_URL, publicApiClient } from './http';
 import type {
   CustomQuestion,
   CustomQuestionCreate,
@@ -19,11 +19,11 @@ import type {
   RoomNightResponseCreate,
 } from '../types/rfp';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3501/api/v1/stellina';
+const API_BASE_URL = STELLINA_API_URL;
 
 const getAuthToken = () => localStorage.getItem('access_token');
 
-const apiClient = axios.create({
+const apiClient = createApiClient({
   baseURL: API_BASE_URL,
 });
 
@@ -211,21 +211,21 @@ export const hotelInvitationApi = {
 // Public Hotel Response APIs (No auth required)
 export const publicHotelApi = {
   getRFPByGuid: async (guid: string): Promise<RFPWithDetails> => {
-    const response = await axios.get(
+    const response = await publicApiClient.get(
       `${API_BASE_URL}/hotel-invitations/public/${guid}/rfp`
     );
     return response.data;
   },
 
   getInvitationInfo: async (guid: string) => {
-    const response = await axios.get(
+    const response = await publicApiClient.get(
       `${API_BASE_URL}/hotel-invitations/public/${guid}/invitation`
     );
     return response.data;
   },
 
   getMyResponse: async (guid: string): Promise<HotelResponseView> => {
-    const response = await axios.get(
+    const response = await publicApiClient.get(
       `${API_BASE_URL}/hotel-invitations/public/${guid}/response`
     );
     return response.data;
@@ -235,7 +235,7 @@ export const publicHotelApi = {
     guid: string,
     response: RoomNightResponseCreate
   ): Promise<void> => {
-    await axios.post(
+    await publicApiClient.post(
       `${API_BASE_URL}/hotel-invitations/public/${guid}/room-nights`,
       response
     );
@@ -245,7 +245,7 @@ export const publicHotelApi = {
     guid: string,
     response: MeetingRoomResponseCreate
   ): Promise<void> => {
-    await axios.post(
+    await publicApiClient.post(
       `${API_BASE_URL}/hotel-invitations/public/${guid}/meeting-rooms`,
       response
     );
@@ -255,34 +255,34 @@ export const publicHotelApi = {
     guid: string,
     response: CustomQuestionResponseCreate
   ): Promise<void> => {
-    await axios.post(
+    await publicApiClient.post(
       `${API_BASE_URL}/hotel-invitations/public/${guid}/custom-questions`,
       response
     );
   },
 
   saveComments: async (guid: string, comments?: string): Promise<void> => {
-    await axios.post(
+    await publicApiClient.post(
       `${API_BASE_URL}/hotel-invitations/public/${guid}/comments`,
       { comments }
     );
   },
 
   submitResponse: async (guid: string): Promise<void> => {
-    await axios.post(`${API_BASE_URL}/hotel-invitations/public/${guid}/submit`);
+    await publicApiClient.post(`${API_BASE_URL}/hotel-invitations/public/${guid}/submit`);
   },
 
   listAttachments: async (guid: string): Promise<Array<{
     id: string; filename: string; size_bytes: number; content_type?: string | null; uploaded_at?: string;
   }>> => {
-    const res = await axios.get(`${API_BASE_URL}/hotel-invitations/public/${guid}/attachments`);
+    const res = await publicApiClient.get(`${API_BASE_URL}/hotel-invitations/public/${guid}/attachments`);
     return res.data;
   },
 
   uploadAttachment: async (guid: string, file: File): Promise<void> => {
     const form = new FormData();
     form.append('file', file);
-    await axios.post(
+    await publicApiClient.post(
       `${API_BASE_URL}/hotel-invitations/public/${guid}/attachments`,
       form,
       { headers: { 'Content-Type': 'multipart/form-data' } },
@@ -290,13 +290,13 @@ export const publicHotelApi = {
   },
 
   deleteAttachment: async (guid: string, attachmentId: string): Promise<void> => {
-    await axios.delete(`${API_BASE_URL}/hotel-invitations/public/${guid}/attachments/${attachmentId}`);
+    await publicApiClient.delete(`${API_BASE_URL}/hotel-invitations/public/${guid}/attachments/${attachmentId}`);
   },
 
   listRfpAttachments: async (guid: string): Promise<Array<{
     id: string; filename: string; size_bytes: number; content_type?: string | null; url?: string | null;
   }>> => {
-    const res = await axios.get(`${API_BASE_URL}/hotel-invitations/public/${guid}/rfp-attachments`);
+    const res = await publicApiClient.get(`${API_BASE_URL}/hotel-invitations/public/${guid}/rfp-attachments`);
     return res.data;
   },
 };

@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { rfpApi, hotelInvitationApi } from '../services/rfpApi';
@@ -48,7 +49,7 @@ const HotelInvitations: React.FC = () => {
       await hotelInvitationApi.createInvitation(rfpId, { event_hotel_id: hotel.id });
       loadData();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to create invitation');
+      alert(getApiErrorMessage(err, 'Failed to create invitation'));
     }
   };
 
@@ -58,7 +59,7 @@ const HotelInvitations: React.FC = () => {
       await hotelInvitationApi.deleteInvitation(invitationId);
       loadData();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to revoke invitation');
+      alert(getApiErrorMessage(err, 'Failed to revoke invitation'));
     }
   };
 

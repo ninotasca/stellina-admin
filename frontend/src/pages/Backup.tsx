@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useState } from 'react';
 import { apiClient } from '../services/api';
 
@@ -23,7 +24,7 @@ const Backup: React.FC = () => {
       window.URL.revokeObjectURL(url);
       setLastDownloadedAt(now.toLocaleString());
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'The backup could not be created. Please try again.');
+      setError(getApiErrorMessage(err, 'The backup could not be created. Please try again.'));
     } finally {
       setDownloading(false);
     }

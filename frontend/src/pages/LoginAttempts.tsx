@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -30,7 +31,7 @@ const LoginAttempts: React.FC = () => {
       const data = await apiClient.getLoginAttempts(200, 0);
       setAttempts(data);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to fetch login attempts');
+      setError(getApiErrorMessage(err, 'Failed to fetch login attempts'));
     } finally {
       setLoading(false);
     }
@@ -43,7 +44,7 @@ const LoginAttempts: React.FC = () => {
       const data = await apiClient.getAllowedGoogleAccounts();
       setAllowedAccounts(data);
     } catch (err: any) {
-      setAllowedError(err.response?.data?.detail || 'Failed to fetch allowed Google accounts');
+      setAllowedError(getApiErrorMessage(err, 'Failed to fetch allowed Google accounts'));
     } finally {
       setAllowedLoading(false);
     }
@@ -64,7 +65,7 @@ const LoginAttempts: React.FC = () => {
       setAllowedAccounts((prev) => [...prev, created]);
       setNewEntryValue('');
     } catch (err: any) {
-      setAllowedError(err.response?.data?.detail || 'Failed to add allowed account');
+      setAllowedError(getApiErrorMessage(err, 'Failed to add allowed account'));
     }
   };
 
@@ -75,7 +76,7 @@ const LoginAttempts: React.FC = () => {
       });
       setAllowedAccounts((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
     } catch (err: any) {
-      setAllowedError(err.response?.data?.detail || 'Failed to update allowed account');
+      setAllowedError(getApiErrorMessage(err, 'Failed to update allowed account'));
     }
   };
 
@@ -84,7 +85,7 @@ const LoginAttempts: React.FC = () => {
       await apiClient.deleteAllowedGoogleAccount(accountId);
       setAllowedAccounts((prev) => prev.filter((item) => item.id !== accountId));
     } catch (err: any) {
-      setAllowedError(err.response?.data?.detail || 'Failed to delete allowed account');
+      setAllowedError(getApiErrorMessage(err, 'Failed to delete allowed account'));
     }
   };
 

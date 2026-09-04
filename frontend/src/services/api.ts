@@ -1,4 +1,5 @@
-import axios, { type AxiosError, type AxiosInstance } from 'axios';
+import type { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
+import { createApiClient, STELLINA_API_URL, CORE_API_URL } from './http';
 import type {
   AllowedGoogleAccount,
   GoogleAuthRequest,
@@ -8,8 +9,6 @@ import type {
   User,
 } from '../types/api';
 
-const STELLINA_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3501/api/v1/stellina';
-const CORE_API_URL = import.meta.env.VITE_CORE_API_URL || 'http://localhost:3501/api/v1/core';
 const SITE_ID = import.meta.env.VITE_SITE_ID;
 
 class ApiClient {
@@ -17,14 +16,14 @@ class ApiClient {
   private stellinaClient: AxiosInstance;
 
   constructor() {
-    this.coreClient = axios.create({
+    this.coreClient = createApiClient({
       baseURL: CORE_API_URL,
       headers: {
         'Content-Type': 'application/json',
       },
     });
 
-    this.stellinaClient = axios.create({
+    this.stellinaClient = createApiClient({
       baseURL: STELLINA_API_URL,
       headers: {
         'Content-Type': 'application/json',
@@ -32,7 +31,7 @@ class ApiClient {
     });
 
     // Request interceptor to add auth token
-    const attachAuth = (config: any) => {
+    const attachAuth = (config: InternalAxiosRequestConfig) => {
       const token = localStorage.getItem('access_token');
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;

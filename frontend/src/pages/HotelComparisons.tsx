@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { commissionApi } from '../services/commissionApi';
@@ -55,7 +56,7 @@ const HotelComparisons: React.FC = () => {
         }));
         if (!cancelled) setRows(withTrackers);
       } catch (e: any) {
-        if (!cancelled) setError(e?.response?.data?.detail || e.message || 'Failed to load hotel comparisons');
+        if (!cancelled) setError(getApiErrorMessage(e, 'Failed to load hotel comparisons'));
       } finally {
         if (!cancelled) setLoading(false);
       }

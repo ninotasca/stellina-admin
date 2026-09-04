@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useState } from 'react';
 import type { HotelConsidered } from '../types/commission';
 
@@ -24,7 +25,7 @@ const HotelsConsidered: React.FC<Props> = ({ hotels, enabled, disabledHint, onAd
     if (!enabled || !draft.trim() || submitting) return;
     setSubmitting(true); setError(null);
     try { await onAdd(draft.trim()); setDraft(''); }
-    catch (err: any) { setError(err.response?.data?.detail || err.message || 'Failed to add hotel'); }
+    catch (err: any) { setError(getApiErrorMessage(err, 'Failed to add hotel')); }
     finally { setSubmitting(false); }
   };
 
@@ -32,7 +33,7 @@ const HotelsConsidered: React.FC<Props> = ({ hotels, enabled, disabledHint, onAd
   const commitEdit = async () => {
     if (!editingId || !editingValue.trim()) { setEditingId(null); return; }
     try { await onRename(editingId, editingValue.trim()); }
-    catch (err: any) { setError(err.response?.data?.detail || err.message || 'Failed to rename'); }
+    catch (err: any) { setError(getApiErrorMessage(err, 'Failed to rename')); }
     setEditingId(null);
   };
 

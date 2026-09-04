@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useState } from 'react';
 import type {
   CustomQuestionResponseCreate,
@@ -111,7 +112,7 @@ const RFPResponseFormBody: React.FC<Props> = ({
     try {
       await onUploadFile(file);
     } catch (e: any) {
-      alert(`Upload failed: ${e.response?.data?.detail || e.message || 'Unknown error'}`);
+      alert(`Upload failed: ${getApiErrorMessage(e, 'Unknown error')}`);
     } finally {
       setUploading(false);
     }
@@ -144,7 +145,7 @@ const RFPResponseFormBody: React.FC<Props> = ({
       if (onSaveComments) await onSaveComments(comments);
       alert('Progress saved.');
     } catch (e: any) {
-      alert(`Save failed: ${e.response?.data?.detail || e.message || 'Unknown error'}`);
+      alert(`Save failed: ${getApiErrorMessage(e, 'Unknown error')}`);
     } finally {
       setBusy(false);
     }
@@ -182,7 +183,7 @@ const RFPResponseFormBody: React.FC<Props> = ({
       if (onSaveComments) await onSaveComments(comments);
       if (onSubmitFinal) await onSubmitFinal();
     } catch (e: any) {
-      alert(`Submit failed: ${e.response?.data?.detail || e.message || 'Unknown error'}`);
+      alert(`Submit failed: ${getApiErrorMessage(e, 'Unknown error')}`);
     } finally {
       setBusy(false);
     }

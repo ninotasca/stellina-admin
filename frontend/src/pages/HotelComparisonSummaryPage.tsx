@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { commissionApi } from '../services/commissionApi';
@@ -85,7 +86,7 @@ const HotelComparisonSummaryPage: React.FC = () => {
         navigate(`/commissions/${eventId}/cvent-merge/${t.pending_merge_job_id}`);
       }
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e.message || 'Failed to load Hotel Comparison Summary');
+      setError(getApiErrorMessage(e, 'Failed to load Hotel Comparison Summary'));
     } finally {
       setLoading(false);
     }
@@ -130,7 +131,7 @@ const HotelComparisonSummaryPage: React.FC = () => {
         navigate(`/commissions/${eventId}/cvent-merge/${updated.pending_merge_job_id}`);
       }
     } catch (e: any) {
-      const detail = e?.response?.data?.detail || e.message || 'Upload failed';
+      const detail = getApiErrorMessage(e, 'Upload failed');
       setError(friendlyUploadError(detail));
       setStep('idle');
     } finally {
@@ -166,7 +167,7 @@ const HotelComparisonSummaryPage: React.FC = () => {
       a.click();
       a.remove();
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e.message || 'Download failed');
+      setError(getApiErrorMessage(e, 'Download failed'));
     }
   };
 
@@ -180,7 +181,7 @@ const HotelComparisonSummaryPage: React.FC = () => {
       setTracker(null);
       setStep('idle');
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e.message || 'Reset failed');
+      setError(getApiErrorMessage(e, 'Reset failed'));
     } finally {
       setBusy(false);
     }

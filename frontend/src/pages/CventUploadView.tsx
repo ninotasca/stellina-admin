@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { EditorContent, useEditor } from '@tiptap/react';
@@ -154,7 +155,7 @@ const CventUploadView: React.FC = () => {
         setUpload(res);
         setActiveSheetId(res.sheets[0]?.id ?? null);
       } catch (e: any) {
-        if (!cancelled) setError(e?.response?.data?.detail || e.message || 'Failed to load');
+        if (!cancelled) setError(getApiErrorMessage(e, 'Failed to load'));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -535,7 +536,7 @@ const EditableCell: React.FC<EditableCellProps> = ({ initial, onSave, onExit }) 
       await onSave(patch);
       setError(null);
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e.message || 'Save failed');
+      setError(getApiErrorMessage(e, 'Save failed'));
     } finally {
       setSaving(false);
     }

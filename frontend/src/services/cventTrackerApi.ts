@@ -1,8 +1,8 @@
-import axios from 'axios';
+import { createApiClient, STELLINA_API_URL } from './http';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3501/api/v1/stellina';
+const API_BASE_URL = STELLINA_API_URL;
 
-const apiClient = axios.create({ baseURL: API_BASE_URL });
+const apiClient = createApiClient({ baseURL: API_BASE_URL });
 apiClient.interceptors.request.use((config) => {
   const token = localStorage.getItem('access_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;

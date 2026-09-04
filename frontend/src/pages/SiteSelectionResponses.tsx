@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { siteSelectionApi } from '../services/siteSelectionApi';
@@ -49,7 +50,7 @@ const SiteSelectionResponses: React.FC = () => {
         const loaded = await siteSelectionApi.getForm(id);
         if (!cancelled) setForm(loaded);
       } catch (err: any) {
-        if (!cancelled) setError(err.response?.data?.detail || 'Failed to load answers');
+        if (!cancelled) setError(getApiErrorMessage(err, 'Failed to load answers'));
       } finally {
         if (!cancelled) setLoading(false);
       }

@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { rfpApi } from '../services/rfpApi';
@@ -28,7 +29,7 @@ const RFPList: React.FC = () => {
       const data = await rfpApi.listRFPs();
       setRfps(data);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to load RFPs');
+      setError(getApiErrorMessage(err, 'Failed to load RFPs'));
     } finally {
       setLoading(false);
     }
@@ -42,7 +43,7 @@ const RFPList: React.FC = () => {
       await rfpApi.deleteRFP(id);
       loadRFPs();
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to delete RFP');
+      alert(getApiErrorMessage(err, 'Failed to delete RFP'));
     }
   };
 

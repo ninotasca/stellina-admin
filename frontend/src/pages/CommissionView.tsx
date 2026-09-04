@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { commissionApi } from '../services/commissionApi';
@@ -325,7 +326,7 @@ const CommissionView: React.FC = () => {
           setHotelNotes(hNotes);
         }
       } catch (err: any) {
-        if (!cancelled) setError(err.response?.data?.detail || 'Failed to load booking');
+        if (!cancelled) setError(getApiErrorMessage(err, 'Failed to load booking'));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -1054,7 +1055,7 @@ const ContactEditForm: React.FC<ContactEditFormProps> = ({ event, onSave, onCanc
       };
       await onSave(patch);
     } catch (e: any) {
-      setErr(e.response?.data?.detail || 'Failed to save');
+      setErr(getApiErrorMessage(e, 'Failed to save'));
       setSaving(false);
     }
   };
@@ -1163,7 +1164,7 @@ const RFPInfoEditForm: React.FC<RFPInfoEditFormProps> = ({
       };
       await onSaveMetrics(patch);
     } catch (e: any) {
-      setErr(e.response?.data?.detail || 'Failed to save');
+      setErr(getApiErrorMessage(e, 'Failed to save'));
       setSaving(false);
     }
   };
@@ -1727,7 +1728,7 @@ const LineItemEditForm: React.FC<LineItemEditFormProps> = ({
       };
       await onSave(payload);
     } catch (e: any) {
-      setErr(e.response?.data?.detail || 'Failed to save line item');
+      setErr(getApiErrorMessage(e, 'Failed to save line item'));
       setSaving(false);
     }
   };
@@ -1739,7 +1740,7 @@ const LineItemEditForm: React.FC<LineItemEditFormProps> = ({
     try {
       await onDelete();
     } catch (e: any) {
-      setErr(e.response?.data?.detail || 'Failed to delete line item');
+      setErr(getApiErrorMessage(e, 'Failed to delete line item'));
       setSaving(false);
     }
   };
@@ -2059,7 +2060,7 @@ const PointRow: React.FC<{
     const next = typeDraft.trim();
     if (next === (point.point_type || '')) return;
     onUpdate(point.id, { point_type: next }).catch((err: any) => {
-      alert(err.response?.data?.detail || 'Failed to save');
+      alert(getApiErrorMessage(err, 'Failed to save'));
       setTypeDraft(point.point_type || '');
     });
   };
@@ -2067,7 +2068,7 @@ const PointRow: React.FC<{
   const commitPoints = () => {
     if (pointsDraft === point.points) return;
     onUpdate(point.id, { points: pointsDraft }).catch((err: any) => {
-      alert(err.response?.data?.detail || 'Failed to save');
+      alert(getApiErrorMessage(err, 'Failed to save'));
       setPointsDraft(point.points);
     });
   };

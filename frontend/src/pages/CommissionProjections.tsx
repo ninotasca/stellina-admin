@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { commissionApi, type ProjectionParams } from '../services/commissionApi';
@@ -30,7 +31,7 @@ const CommissionProjections: React.FC = () => {
       const res = await commissionApi.projections(params);
       setData(res);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to load projections');
+      setError(getApiErrorMessage(err, 'Failed to load projections'));
     } finally { setLoading(false); }
   };
 

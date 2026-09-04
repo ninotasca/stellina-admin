@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -150,7 +151,7 @@ const CommissionDashboard: React.FC = () => {
       const data = await commissionApi.listEvents();
       setEvents(data);
     } catch (e: any) {
-      setError(e.response?.data?.detail || e.message || 'Failed to load');
+      setError(getApiErrorMessage(e, 'Failed to load'));
     } finally { setLoading(false); }
   })(); }, []);
 

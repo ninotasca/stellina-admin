@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useState } from 'react';
 import type { CommissionNote } from '../types/commission';
 
@@ -49,7 +50,7 @@ const NoteFeed: React.FC<Props> = ({ notes, onAdd, onEdit, onDelete, enabled, di
       await onAdd(draft.trim());
       setDraft('');
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to add note');
+      setError(getApiErrorMessage(err, 'Failed to add note'));
     } finally {
       setSubmitting(false);
     }
@@ -79,7 +80,7 @@ const NoteFeed: React.FC<Props> = ({ notes, onAdd, onEdit, onDelete, enabled, di
       await onEdit(note.id, editingBody.trim());
       cancelEdit();
     } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || 'Failed to update note');
+      setError(getApiErrorMessage(err, 'Failed to update note'));
     } finally {
       setEditingBusy(false);
     }
@@ -94,7 +95,7 @@ const NoteFeed: React.FC<Props> = ({ notes, onAdd, onEdit, onDelete, enabled, di
     if (!onDelete) return;
     if (!window.confirm('Delete this note? This cannot be undone.')) return;
     try { await onDelete(note.id); }
-    catch (err: any) { setError(err.response?.data?.detail || err.message || 'Failed to delete note'); }
+    catch (err: any) { setError(getApiErrorMessage(err, 'Failed to delete note')); }
   };
 
   return (

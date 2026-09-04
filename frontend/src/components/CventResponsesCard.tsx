@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -31,7 +32,7 @@ const CventResponsesCard: React.FC<Props> = ({ eventId, bookingName }) => {
       const t = await cventTrackerApi.get(eventId);
       setTracker(t);
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e.message || 'Failed to load Hotel Comparison Summary');
+      setError(getApiErrorMessage(e, 'Failed to load Hotel Comparison Summary'));
     } finally {
       setLoading(false);
     }

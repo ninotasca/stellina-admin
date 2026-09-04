@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useEffect, useState } from 'react';
 import { nimbleApi, nimbleEntityUrl, type NimbleContact, type NimbleDeal, type NimbleListResponse, type NimbleRecordType } from '../services/nimbleApi';
 import NimbleLink from '../components/NimbleLink';
@@ -59,7 +60,7 @@ const NimblePage: React.FC = () => {
         }
         if (!cancelled) setDeals(out);
       } catch (e: any) {
-        if (!cancelled) setDealsError(e.response?.data?.detail || e.message || 'Failed to load deals');
+        if (!cancelled) setDealsError(getApiErrorMessage(e, 'Failed to load deals'));
       } finally {
         if (!cancelled) setDealsLoading(false);
       }
@@ -79,7 +80,7 @@ const NimblePage: React.FC = () => {
         });
         if (!cancelled) setData(res);
       } catch (e: any) {
-        if (!cancelled) setError(e.response?.data?.detail || e.message || 'Failed to load contacts');
+        if (!cancelled) setError(getApiErrorMessage(e, 'Failed to load contacts'));
       } finally {
         if (!cancelled) setLoading(false);
       }

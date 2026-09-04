@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { publicHotelApi } from '../services/rfpApi';
@@ -47,7 +48,7 @@ const HotelResponseForm: React.FC = () => {
           if (!cancelled) setRfpDocs(docs);
         } catch { /* RFP attachments table may not exist yet */ }
       } catch (err: any) {
-        if (!cancelled) setLoadError(err?.response?.data?.detail || 'Failed to load RFP. Please check your link.');
+        if (!cancelled) setLoadError(getApiErrorMessage(err, 'Failed to load RFP. Please check your link.'));
       } finally {
         if (!cancelled) setLoading(false);
       }

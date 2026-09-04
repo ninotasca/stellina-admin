@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { publicSiteSelectionApi } from '../services/siteSelectionApi';
@@ -58,7 +59,7 @@ const PublicSiteSelectionForm: React.FC = () => {
         setAnswers(nextAnswers);
         setSubmitted(Boolean(loaded.submitted_at));
       } catch (err: any) {
-        if (!cancelled) setError(err.response?.data?.detail || 'This form is not available.');
+        if (!cancelled) setError(getApiErrorMessage(err, 'This form is not available.'));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -108,7 +109,7 @@ const PublicSiteSelectionForm: React.FC = () => {
       await publicSiteSelectionApi.submitForm(guid, { answers: payload });
       setSubmitted(true);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to submit form');
+      setError(getApiErrorMessage(err, 'Failed to submit form'));
     } finally {
       setSubmitting(false);
     }

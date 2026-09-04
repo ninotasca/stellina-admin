@@ -1,6 +1,14 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/v1/stellina/health.js": { "maxDuration": 30 },
+    "api/v1/stellina/commissions/projections.js": { "maxDuration": 30 }
+  },
   "rewrites": [
+    { "source": "/api/v1/stellina/health", "destination": "/api/v1/stellina/health" },
+    { "source": "/api/v1/stellina/commissions/projections", "destination": "/api/v1/stellina/commissions/projections" },
+    { "source": "/api/v1/stellina/:path*", "destination": "https://api.unoventi.ai/api/v1/stellina/:path*" },
+    { "source": "/api/v1/core/:path*", "destination": "https://api.unoventi.ai/api/v1/core/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

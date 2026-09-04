@@ -1,3 +1,4 @@
+import { getApiErrorMessage } from '../services/http';
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { rfpApi } from '../services/rfpApi';
@@ -32,7 +33,7 @@ const RFPPreview: React.FC = () => {
           }
         } catch { /* table may not exist yet */ }
       } catch (e: any) {
-        if (!cancelled) setError(e.response?.data?.detail || e.message || 'Failed to load RFP');
+        if (!cancelled) setError(getApiErrorMessage(e, 'Failed to load RFP'));
       } finally {
         if (!cancelled) setLoading(false);
       }
