@@ -27,6 +27,7 @@ import PointsTracker from './pages/PointsTracker';
 import Backup from './pages/Backup';
 import HotelComparisonSummaryPage from './pages/HotelComparisonSummaryPage';
 import HotelComparisons from './pages/HotelComparisons';
+import InvoiceTracker from './pages/InvoiceTracker';
 
 function App() {
   const adminShell = (
@@ -101,6 +102,7 @@ function App() {
 
             <Route path="/nimble" element={<NimblePage />} />
             <Route path="/backup" element={<Backup />} />
+            <Route path="/invoices" element={<InvoiceTracker />} />
             <Route path="/points" element={<PointsTracker />} />
           </Route>
 

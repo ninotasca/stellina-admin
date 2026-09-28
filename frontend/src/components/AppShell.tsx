@@ -13,10 +13,8 @@ const NAV: NavItem[] = [
   { to: '/dashboard', label: 'Home', end: true },
   { to: '/commissions', label: 'Commission Tracker', end: true },
   { to: '/commissions/list', label: 'Bookings' },
-  { to: '/hotel-comparisons', label: 'Hotel Comparisons' },
+  { to: '/invoices', label: 'Invoice Tracker' },
   { to: '/points', label: 'Points Tracker' },
-  { to: '/rfps', label: 'RFPs' },
-  { to: '/site-selection', label: 'Site Selection' },
 ];
 
 const AppShell: React.FC = () => {
@@ -111,6 +109,13 @@ const AppShell: React.FC = () => {
                   <MenuItem onClick={() => { setMenuOpen(false); navigate('/backup'); }}>Database Backup</MenuItem>
                   <MenuItem onClick={() => { setMenuOpen(false); navigate('/login-attempts'); }}>Access Control</MenuItem>
                   <MenuItem onClick={() => { setMenuOpen(false); navigate('/account'); }}>My Account</MenuItem>
+                  <div className="border-t border-gray-100 my-1" />
+                  <p className="px-4 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                    Experimental
+                  </p>
+                  <MenuItem onClick={() => { setMenuOpen(false); navigate('/hotel-comparisons'); }}>Hotel Comparisons</MenuItem>
+                  <MenuItem onClick={() => { setMenuOpen(false); navigate('/rfps'); }}>RFPs</MenuItem>
+                  <MenuItem onClick={() => { setMenuOpen(false); navigate('/site-selection'); }}>Site Selection</MenuItem>
                   <div className="border-t border-gray-100 my-1" />
                   <MenuItem onClick={handleLogout} danger>Log out</MenuItem>
                 </nav>
