@@ -1,3 +1,3 @@
 [submodule "backend"]
 	path = backend
-	url = git@github.com:ninotasca/unoventi-api.git
+	url = https://github.com/ninotasca/unoventi-api.git
