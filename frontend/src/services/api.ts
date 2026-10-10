@@ -100,8 +100,20 @@ class ApiClient {
 
   // Get current user
   async getCurrentUser(): Promise<User> {
-    const response = await this.stellinaClient.get<User>('/auth/me');
-    return response.data;
+    const response = await this.coreClient.get<{
+      identity: { id: string; email: string; full_name: string | null; avatar_url: string | null };
+      roles: string[];
+    }>('/auth/session/stellina');
+    const now = new Date().toISOString();
+    return {
+      id: response.data.identity.id,
+      email: response.data.identity.email,
+      full_name: response.data.identity.full_name,
+      avatar_url: response.data.identity.avatar_url,
+      is_admin: response.data.roles.includes('admin'),
+      created_at: now,
+      updated_at: now,
+    };
   }
 
   // Get login attempts (admin only)
