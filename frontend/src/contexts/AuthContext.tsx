@@ -40,6 +40,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setUser(currentUser);
         localStorage.setItem('user', JSON.stringify(currentUser));
       } catch {
+        void apiClient.reportAuthEvent('auth_error', 'session_restore_failed');
         if (active) setUser(null);
       } finally {
         if (active) setLoading(false);
@@ -85,6 +86,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const logout = async () => {
     try {
+      await apiClient.reportAuthEvent('logout');
       if (supabase) await supabase.auth.signOut({ scope: 'local' });
     } catch (error) {
       console.error('Logout error:', error);

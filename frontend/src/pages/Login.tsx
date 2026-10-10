@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { apiClient } from '../services/api';
 import { supabase } from '../services/supabase';
 
 const REDIRECT_URI = `${window.location.origin}/auth/callback`;
@@ -23,11 +24,13 @@ const Login: React.FC = () => {
     }
     setLoading(true);
     setError(null);
+    await apiClient.reportAuthEvent('oauth_started');
     const { error: authError } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: REDIRECT_URI, scopes: 'email profile' },
     });
     if (authError) {
+      void apiClient.reportAuthEvent('auth_error', 'oauth_start_failed');
       setError(authError.message || 'Login failed. Please try again.');
       setLoading(false);
     }

@@ -171,7 +171,7 @@ test('shared OAuth payload, logout/auth paths and established 401 redirect are p
   reply = { status: 401, data: '<html>private-secret</html>' }
   await assert.rejects(apiClient.getCurrentUser())
   assert.equal(calls.at(-1).baseURL, '/api/v1/core')
-  assert.equal(calls.at(-1).url, '/auth/me')
+  assert.equal(calls.at(-1).url, '/auth/session/stellina')
   assert.equal(globalThis.window.location.href, '/login')
   assert.equal(store.has('access_token'), false)
   assert.equal(store.has('user'), false)

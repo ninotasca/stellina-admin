@@ -10,6 +10,16 @@ import type {
 } from '../types/api';
 
 const SITE_ID = import.meta.env.VITE_SITE_ID;
+const AUTH_SITE_KEY = 'stellina';
+const AUTH_VISIT_KEY = 'unoventi.auth-visit-id';
+
+const browserId = (key: string) => {
+  const existing = localStorage.getItem(key);
+  if (existing) return existing;
+  const created = crypto.randomUUID();
+  localStorage.setItem(key, created);
+  return created;
+};
 
 class ApiClient {
   private coreClient: AxiosInstance;
@@ -33,6 +43,9 @@ class ApiClient {
     // Request interceptor to add auth token
     const attachAuth = (config: InternalAxiosRequestConfig) => {
       const token = localStorage.getItem('access_token');
+      config.headers['X-Unoventi-Site-Id'] = AUTH_SITE_KEY;
+      config.headers['X-Unoventi-Visit-Id'] = browserId(AUTH_VISIT_KEY);
+      config.headers['X-Correlation-Id'] = crypto.randomUUID();
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
@@ -114,6 +127,20 @@ class ApiClient {
       created_at: now,
       updated_at: now,
     };
+  }
+
+  async reportAuthEvent(
+    eventType: 'oauth_started' | 'oauth_callback_failed' | 'auth_error' | 'logout',
+    errorCode?: string,
+  ): Promise<void> {
+    try {
+      await this.coreClient.post(`/auth/events/${AUTH_SITE_KEY}`, {
+        event_type: eventType,
+        ...(errorCode ? { error_code: errorCode.slice(0, 120) } : {}),
+      });
+    } catch {
+      // Auth telemetry must never interrupt sign-in or session restoration.
+    }
   }
 
   // Get login attempts (admin only)
