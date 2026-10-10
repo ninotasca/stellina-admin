@@ -100,7 +100,7 @@ class ApiClient {
 
   // Get current user
   async getCurrentUser(): Promise<User> {
-    const response = await this.coreClient.get<User>('/auth/me');
+    const response = await this.stellinaClient.get<User>('/auth/me');
     return response.data;
   }
 

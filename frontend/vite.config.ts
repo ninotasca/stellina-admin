@@ -8,5 +8,5 @@ export default defineConfig(({ mode }) => {
     '^/api/v1/(stellina|core)(/|$)': { target, changeOrigin: true },
   }
   // Vite forwards directly to the backend. Vercel runs the selected logging Functions.
-  return { plugins: [react()], server: { port: 3402, proxy }, preview: { proxy } }
+  return { plugins: [react()], server: { host: '127.0.0.1', port: 3402, strictPort: true, proxy }, preview: { proxy } }
 })

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { User } from '../types/api';
 import { apiClient } from '../services/api';
+import { supabase } from '../services/supabase';
 
 const MAGIC_LOGIN_ENABLED = import.meta.env.VITE_ENABLE_MAGIC_LOGIN === 'true';
 const MAGIC_LOGIN_SESSION_KEY = 'magic_login_enabled';
@@ -22,46 +23,37 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is already logged in
-    const token = localStorage.getItem('access_token');
-    const storedUser = localStorage.getItem('user');
-    const isMagicLoginSession = MAGIC_LOGIN_ENABLED && localStorage.getItem(MAGIC_LOGIN_SESSION_KEY) === 'true';
-
-    if (token && storedUser) {
-      try {
-        const parsedUser = JSON.parse(storedUser);
-        setUser(parsedUser);
-
-        if (isMagicLoginSession) {
-          setLoading(false);
-          return;
-        }
-        
-        // Verify token is still valid
-        apiClient.getCurrentUser()
-          .then((currentUser) => {
-            setUser(currentUser);
-            localStorage.setItem('user', JSON.stringify(currentUser));
-          })
-          .catch(() => {
-            // Token invalid, clear storage
-            localStorage.removeItem('access_token');
-            localStorage.removeItem('user');
-            localStorage.removeItem(MAGIC_LOGIN_SESSION_KEY);
-            setUser(null);
-          })
-          .finally(() => {
-            setLoading(false);
-          });
-      } catch (error) {
+    let active = true;
+    const acceptSession = async (token: string | null) => {
+      if (!active) return;
+      if (!token) {
         localStorage.removeItem('access_token');
         localStorage.removeItem('user');
-        localStorage.removeItem(MAGIC_LOGIN_SESSION_KEY);
+        setUser(null);
         setLoading(false);
+        return;
       }
-    } else {
+      localStorage.setItem('access_token', token);
+      try {
+        const currentUser = await apiClient.getCurrentUser();
+        if (!active) return;
+        setUser(currentUser);
+        localStorage.setItem('user', JSON.stringify(currentUser));
+      } catch {
+        if (active) setUser(null);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    if (!supabase) {
       setLoading(false);
+      return;
     }
+    void supabase.auth.getSession().then(({ data }) => acceptSession(data.session?.access_token ?? null));
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      void acceptSession(session?.access_token ?? null);
+    });
+    return () => { active = false; data.subscription.unsubscribe(); };
   }, []);
 
   const login = (token: string, userData: User) => {
@@ -93,9 +85,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const logout = async () => {
     try {
-      if (localStorage.getItem(MAGIC_LOGIN_SESSION_KEY) !== 'true') {
-        await apiClient.logout();
-      }
+      if (supabase) await supabase.auth.signOut({ scope: 'local' });
     } catch (error) {
       console.error('Logout error:', error);
     } finally {

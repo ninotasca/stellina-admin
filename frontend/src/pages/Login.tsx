@@ -1,17 +1,14 @@
-import { getApiErrorMessage } from '../services/http';
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { apiClient } from '../services/api';
+import { supabase } from '../services/supabase';
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 const REDIRECT_URI = `${window.location.origin}/auth/callback`;
 const MAGIC_LOGIN_ENABLED = import.meta.env.VITE_ENABLE_MAGIC_LOGIN === 'true';
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
-  const location = useLocation();
-  const { login, magicLogin, isAuthenticated } = useAuth();
+  const { magicLogin, isAuthenticated } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,42 +16,21 @@ const Login: React.FC = () => {
     if (isAuthenticated) navigate('/dashboard');
   }, [isAuthenticated, navigate]);
 
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const code = params.get('code');
-    if (code) handleGoogleCallback(code);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location]);
-
-  const handleGoogleCallback = async (code: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await apiClient.googleAuth(code, REDIRECT_URI);
-      login(response.access_token, response.user);
-      navigate('/dashboard');
-    } catch (err: any) {
-      setError(getApiErrorMessage(err, 'Login failed. Please try again.'));
-      window.history.replaceState({}, document.title, '/login');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoogleLogin = () => {
-    if (!GOOGLE_CLIENT_ID) {
-      setError('Google OAuth is not configured. Missing client ID.');
+  const handleGoogleLogin = async () => {
+    if (!supabase) {
+      setError('Authentication is not configured for this environment.');
       return;
     }
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
-      client_id: GOOGLE_CLIENT_ID,
-      redirect_uri: REDIRECT_URI,
-      response_type: 'code',
-      scope: 'openid email profile',
-      access_type: 'offline',
-      prompt: 'consent',
-    })}`;
-    window.location.href = authUrl;
+    setLoading(true);
+    setError(null);
+    const { error: authError } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: REDIRECT_URI, scopes: 'email profile' },
+    });
+    if (authError) {
+      setError(authError.message || 'Login failed. Please try again.');
+      setLoading(false);
+    }
   };
 
   const handleMagicLogin = () => {

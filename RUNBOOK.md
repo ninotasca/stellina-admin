@@ -21,7 +21,7 @@ Vite's API proxy defaults to `http://localhost:3401`. Browser requests stay on
 http://localhost:3402 and are forwarded to the published backend port.
 
 For non-Docker local startup, the helper script runs the backend directly on
-host port `3501` and passes the matching server-side proxy target.
+host port `3401` and passes the matching server-side proxy target.
 
 ## Why This Script Exists
 
@@ -29,10 +29,10 @@ Docker is the documented project path, but in the Codex desktop sandbox the Dock
 
 The helper script uses the path verified on June 24, 2026:
 
-- Backend: `backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 3501`
+- Backend: `backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 3401`
 - Frontend: `npm run dev -- --host 127.0.0.1 --port 3402 --strictPort`
 - Frontend proxy override:
-  - `STELLINA_API_PROXY_TARGET=http://localhost:3501`
+  - `STELLINA_API_PROXY_TARGET=http://localhost:3401`
 
 `VITE_API_URL` and `VITE_CORE_API_URL` are no longer used. Vite dev/preview
 forward directly and do not execute Vercel logging Functions. See
