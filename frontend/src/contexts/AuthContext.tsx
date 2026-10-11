@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import axios from 'axios';
 import type { User } from '../types/api';
 import { apiClient, type PublicAuthConfig } from '../services/api';
 import { supabase } from '../services/supabase';
@@ -73,8 +74,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (!active) return;
         setUser(currentUser);
         localStorage.setItem('user', JSON.stringify(currentUser));
-      } catch {
+      } catch (error) {
         void apiClient.reportAuthEvent('auth_error', 'session_restore_failed');
+        // The API is the authority for whether this Supabase identity may use
+        // Stellina. Clear a rejected browser session so subsequent page loads
+        // do not keep retrying the same invalid token.
+        if (supabase && axios.isAxiosError(error) && [401, 403].includes(error.response?.status ?? 0)) {
+          try {
+            await supabase.auth.signOut({ scope: 'local' });
+          } catch {
+            // The app token is cleared below even if local Supabase cleanup fails.
+          }
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('user');
+        }
         if (active) setUser(null);
       } finally {
         if (active) setLoading(false);

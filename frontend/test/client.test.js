@@ -6,7 +6,7 @@ let reply = { status: 200, data: '{}' }
 let calls = []
 const store = new Map()
 globalThis.localStorage = { getItem: key => store.get(key) ?? null, removeItem: key => store.delete(key), setItem: (key, value) => store.set(key, value) }
-globalThis.window = { location: { href: '/dashboard' } }
+globalThis.window = { location: { href: '/dashboard', pathname: '/dashboard' } }
 axios.defaults.adapter = async config => {
   calls.push(config)
   if (reply.throw) throw reply.throw
@@ -28,6 +28,7 @@ test.beforeEach(() => {
   calls = []
   store.clear()
   globalThis.window.location.href = '/dashboard'
+  globalThis.window.location.pathname = '/dashboard'
 })
 
 async function failure(client = createApiClient()) {
@@ -172,6 +173,18 @@ test('shared OAuth payload, logout/auth paths and established 401 redirect are p
   await assert.rejects(apiClient.getCurrentUser())
   assert.equal(calls.at(-1).baseURL, '/api/v1/core')
   assert.equal(calls.at(-1).url, '/auth/session/stellina')
+  assert.equal(globalThis.window.location.href, '/login')
+  assert.equal(store.has('access_token'), false)
+  assert.equal(store.has('user'), false)
+})
+
+test('401 on an auth route clears app state without reloading the login page', async () => {
+  store.set('access_token', 'stale-token')
+  store.set('user', '{}')
+  globalThis.window.location.href = '/login'
+  globalThis.window.location.pathname = '/login'
+  reply = { status: 401, data: '{}' }
+  await assert.rejects(apiClient.getCurrentUser())
   assert.equal(globalThis.window.location.href, '/login')
   assert.equal(store.has('access_token'), false)
   assert.equal(store.has('user'), false)

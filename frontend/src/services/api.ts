@@ -80,7 +80,12 @@ class ApiClient {
         // Clear token and redirect to login
         localStorage.removeItem('access_token');
         localStorage.removeItem('user');
-        window.location.href = '/login';
+        // Never reload an auth route in response to its own session check. A
+        // stale Supabase session would otherwise make /login refresh forever,
+        // preventing the user from starting a fresh OAuth flow.
+        if (!['/login', '/auth/callback'].includes(window.location.pathname)) {
+          window.location.href = '/login';
+        }
       }
       return Promise.reject(error);
     };
