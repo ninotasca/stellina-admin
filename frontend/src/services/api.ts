@@ -13,6 +13,14 @@ const SITE_ID = import.meta.env.VITE_SITE_ID;
 const AUTH_SITE_KEY = 'stellina';
 const AUTH_VISIT_KEY = 'unoventi.auth-visit-id';
 
+export interface PublicAuthConfig {
+  enabled: boolean;
+  providers: Array<'email' | 'google'>;
+  registration: 'open' | 'closed';
+  password_reset: boolean;
+  magic_login: boolean;
+}
+
 const browserId = (key: string) => {
   const existing = localStorage.getItem(key);
   if (existing) return existing;
@@ -127,6 +135,16 @@ class ApiClient {
       created_at: now,
       updated_at: now,
     };
+  }
+
+  async getAuthPolicy(): Promise<PublicAuthConfig> {
+    const response = await this.coreClient.get<PublicAuthConfig>(`/auth/config/${AUTH_SITE_KEY}`);
+    return response.data;
+  }
+
+  async magicLogin(): Promise<{ access_token: string }> {
+    const response = await this.coreClient.post<{ access_token: string }>(`/auth/magic-login/${AUTH_SITE_KEY}`);
+    return response.data;
   }
 
   async reportAuthEvent(

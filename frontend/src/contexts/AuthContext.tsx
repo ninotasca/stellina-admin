@@ -1,19 +1,28 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { User } from '../types/api';
-import { apiClient } from '../services/api';
+import { apiClient, type PublicAuthConfig } from '../services/api';
 import { supabase } from '../services/supabase';
 
-const MAGIC_LOGIN_ENABLED = import.meta.env.VITE_ENABLE_MAGIC_LOGIN === 'true';
-const MAGIC_LOGIN_SESSION_KEY = 'magic_login_enabled';
+const MAGIC_LOGIN_FRONTEND_ENABLED = import.meta.env.VITE_AUTH_ENABLE_MAGIC_LOGIN === 'true';
+const SAFE_POLICY: PublicAuthConfig = {
+  enabled: true,
+  providers: [],
+  registration: 'closed',
+  password_reset: false,
+  magic_login: false,
+};
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   login: (token: string, user: User) => void;
-  magicLogin: () => void;
+  magicLogin: () => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
   isAdmin: boolean;
+  policyLoading: boolean;
+  googleLoginEnabled: boolean;
+  magicLoginEnabled: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -21,6 +30,31 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [policy, setPolicy] = useState<PublicAuthConfig>(SAFE_POLICY);
+  const [policyLoading, setPolicyLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    void apiClient.getAuthPolicy()
+      .then((next) => {
+        if (!active) return;
+        setPolicy(next);
+        console.info(JSON.stringify({
+          event: 'unoventi.auth.policy_loaded',
+          component: 'auth',
+          site_key: 'stellina',
+          provider_count: next.providers.length,
+          magic_login_admin: next.magic_login,
+          magic_login_frontend: MAGIC_LOGIN_FRONTEND_ENABLED,
+          magic_login_effective: next.magic_login && MAGIC_LOGIN_FRONTEND_ENABLED,
+        }));
+      })
+      .catch(() => {
+        console.warn(JSON.stringify({ event: 'unoventi.auth.policy_failed', component: 'auth', site_key: 'stellina' }));
+      })
+      .finally(() => { if (active) setPolicyLoading(false); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -60,28 +94,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const login = (token: string, userData: User) => {
     localStorage.setItem('access_token', token);
     localStorage.setItem('user', JSON.stringify(userData));
-    localStorage.removeItem(MAGIC_LOGIN_SESSION_KEY);
     setUser(userData);
   };
 
-  const magicLogin = () => {
-    if (!MAGIC_LOGIN_ENABLED) return;
-
-    const now = new Date().toISOString();
-    const userData: User = {
-      id: 'magic-local-user',
-      email: 'magic-login@stellina.local',
-      full_name: 'Magic Login',
-      avatar_url: null,
-      is_admin: true,
-      created_at: now,
-      updated_at: now,
-    };
-
-    localStorage.setItem('access_token', 'dev_magic_token_local');
-    localStorage.setItem('user', JSON.stringify(userData));
-    localStorage.setItem(MAGIC_LOGIN_SESSION_KEY, 'true');
-    setUser(userData);
+  const magicLogin = async () => {
+    if (!MAGIC_LOGIN_FRONTEND_ENABLED || !policy.magic_login) {
+      throw new Error('Magic Login is disabled.');
+    }
+    const result = await apiClient.magicLogin();
+    localStorage.setItem('access_token', result.access_token);
+    const currentUser = await apiClient.getCurrentUser();
+    localStorage.setItem('user', JSON.stringify(currentUser));
+    setUser(currentUser);
   };
 
   const logout = async () => {
@@ -93,7 +117,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } finally {
       localStorage.removeItem('access_token');
       localStorage.removeItem('user');
-      localStorage.removeItem(MAGIC_LOGIN_SESSION_KEY);
       setUser(null);
     }
   };
@@ -106,6 +129,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     logout,
     isAuthenticated: !!user,
     isAdmin: user?.is_admin || false,
+    policyLoading,
+    googleLoginEnabled: policy.enabled && policy.providers.includes('google'),
+    magicLoginEnabled: policy.enabled && policy.magic_login && MAGIC_LOGIN_FRONTEND_ENABLED,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

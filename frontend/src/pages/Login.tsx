@@ -5,11 +5,10 @@ import { apiClient } from '../services/api';
 import { supabase } from '../services/supabase';
 
 const REDIRECT_URI = `${window.location.origin}/auth/callback`;
-const MAGIC_LOGIN_ENABLED = import.meta.env.VITE_ENABLE_MAGIC_LOGIN === 'true';
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
-  const { magicLogin, isAuthenticated } = useAuth();
+  const { magicLogin, isAuthenticated, policyLoading, googleLoginEnabled, magicLoginEnabled } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,9 +35,16 @@ const Login: React.FC = () => {
     }
   };
 
-  const handleMagicLogin = () => {
-    magicLogin();
-    navigate('/dashboard');
+  const handleMagicLogin = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await magicLogin();
+      navigate('/dashboard');
+    } catch {
+      setError('Magic Login could not be started. Check the Unoventi Admin policy and this frontend deployment’s environment variable.');
+      setLoading(false);
+    }
   };
 
   return (
@@ -77,9 +83,9 @@ const Login: React.FC = () => {
               </div>
             )}
 
-            <button
+            {googleLoginEnabled && <button
               onClick={handleGoogleLogin}
-              disabled={loading}
+              disabled={loading || policyLoading}
               className="w-full flex items-center justify-center gap-3 px-6 py-3 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {loading ? (
@@ -95,12 +101,12 @@ const Login: React.FC = () => {
                   <span className="text-gray-700 font-medium">Sign in with Google</span>
                 </>
               )}
-            </button>
+            </button>}
 
-            {MAGIC_LOGIN_ENABLED && (
+            {magicLoginEnabled && (
               <button
                 type="button"
-                onClick={handleMagicLogin}
+                onClick={() => void handleMagicLogin()}
                 disabled={loading}
                 className="mt-3 w-full flex items-center justify-center gap-2 px-6 py-3 bg-[#3e555c] text-white rounded-lg hover:bg-[#31464d] transition-all shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
               >
