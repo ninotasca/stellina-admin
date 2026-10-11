@@ -79,11 +79,29 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // The API is the authority for whether this Supabase identity may use
         // Stellina. Clear a rejected browser session so subsequent page loads
         // do not keep retrying the same invalid token.
-        if (supabase && axios.isAxiosError(error) && [401, 403].includes(error.response?.status ?? 0)) {
+        if (supabase && axios.isAxiosError(error) && error.response?.status === 401) {
           try {
-            await supabase.auth.signOut({ scope: 'local' });
-          } catch {
+            const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
+            console.info(JSON.stringify({
+              event: signOutError
+                ? 'unoventi.auth.rejected_session_clear_failed'
+                : 'unoventi.auth.rejected_session_cleared',
+              component: 'auth',
+              site_key: 'stellina',
+              status: 401,
+              success: !signOutError,
+              ...(signOutError ? { error_class: signOutError.name || 'AuthError' } : {}),
+            }));
+          } catch (signOutError) {
             // The app token is cleared below even if local Supabase cleanup fails.
+            console.warn(JSON.stringify({
+              event: 'unoventi.auth.rejected_session_clear_failed',
+              component: 'auth',
+              site_key: 'stellina',
+              status: 401,
+              success: false,
+              error_class: signOutError instanceof Error ? signOutError.name : 'UnknownError',
+            }));
           }
           localStorage.removeItem('access_token');
           localStorage.removeItem('user');
@@ -98,7 +116,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return;
     }
     void supabase.auth.getSession().then(({ data }) => acceptSession(data.session?.access_token ?? null));
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      // getSession above owns initial restoration. Ignore the matching event so
+      // opening a new tab does not authorize the same stored token twice.
+      if (event === 'INITIAL_SESSION') return;
       void acceptSession(session?.access_token ?? null);
     });
     return () => { active = false; data.subscription.unsubscribe(); };
