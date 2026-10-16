@@ -136,7 +136,10 @@ class ApiClient {
       email: response.data.identity.email,
       full_name: response.data.identity.full_name,
       avatar_url: response.data.identity.avatar_url,
-      is_admin: response.data.roles.includes('admin'),
+      // Stellina Admin is an all-or-nothing application. The shared session
+      // endpoint has already enforced the closed site allowlist, so every
+      // admitted Stellina user receives the same full product capabilities.
+      is_admin: true,
       created_at: now,
       updated_at: now,
     };
