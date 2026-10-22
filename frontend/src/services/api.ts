@@ -103,7 +103,7 @@ class ApiClient {
 
   // Health check
   async healthCheck(): Promise<{ status: string; message: string }> {
-    const response = await this.stellinaClient.get('/health');
+    const response = await this.coreClient.get('/health/stellina');
     return response.data;
   }
 
@@ -125,24 +125,32 @@ class ApiClient {
   }
 
   // Get current user
-  async getCurrentUser(): Promise<User> {
+  async exchangeSession(): Promise<{ access_token: string; user: User }> {
     const response = await this.coreClient.get<{
-      identity: { id: string; email: string; full_name: string | null; avatar_url: string | null };
-      roles: string[];
+      access_token: string;
+      context: {
+        identity: { id: string; email: string; full_name: string | null; avatar_url: string | null };
+        roles: string[];
+      };
     }>('/auth/session/stellina');
+    const context = response.data.context;
     const now = new Date().toISOString();
-    return {
-      id: response.data.identity.id,
-      email: response.data.identity.email,
-      full_name: response.data.identity.full_name,
-      avatar_url: response.data.identity.avatar_url,
+    return { access_token: response.data.access_token, user: {
+      id: context.identity.id,
+      email: context.identity.email,
+      full_name: context.identity.full_name,
+      avatar_url: context.identity.avatar_url,
       // Stellina Admin is an all-or-nothing application. The shared session
       // endpoint has already enforced the closed site allowlist, so every
       // admitted Stellina user receives the same full product capabilities.
       is_admin: true,
       created_at: now,
       updated_at: now,
-    };
+    } };
+  }
+
+  async getCurrentUser(): Promise<User> {
+    return (await this.exchangeSession()).user;
   }
 
   async getAuthPolicy(): Promise<PublicAuthConfig> {

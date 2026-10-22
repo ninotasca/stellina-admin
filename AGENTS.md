@@ -18,3 +18,8 @@ rewritten to `https://api.unoventi.ai`.
 When a task changes an API contract, inspect and update both this repository and
 `unoventi-api`. Stellina code may depend on shared core contracts; it must not
 depend on another product's module or schema.
+
+After Supabase establishes identity, exchange its token at
+`/api/v1/core/auth/session/stellina` and use only the returned Stellina-scoped
+token for protected API calls. Never send a raw Supabase token to a protected
+product route or call another product's API prefix.

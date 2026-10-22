@@ -137,7 +137,12 @@ test('successful empty deletes, HEAD and blob downloads retain their values', as
 
 test('all private clients use same-origin paths and preserve bearer tokens', async () => {
   store.set('access_token', 'private-token')
-  const methods = [() => apiClient.healthCheck(), () => commissionApi.projections({ statuses: ['definite', 'prospect'] }),
+  await apiClient.healthCheck()
+  assert.equal(calls.at(-1).baseURL, '/api/v1/core')
+  assert.equal(calls.at(-1).url, '/health/stellina')
+  assert.equal(calls.at(-1).headers.Authorization, 'Bearer private-token')
+
+  const methods = [() => commissionApi.projections({ statuses: ['definite', 'prospect'] }),
     () => cventTrackerApi.listAll(), () => rfpApi.listRFPs(), () => siteSelectionApi.listForms(), () => nimbleApi.listDeals()]
   for (const method of methods) {
     await method()

@@ -70,8 +70,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       localStorage.setItem('access_token', token);
       try {
-        const currentUser = await apiClient.getCurrentUser();
+        const exchanged = await apiClient.exchangeSession();
         if (!active) return;
+        localStorage.setItem('access_token', exchanged.access_token);
+        const currentUser = exchanged.user;
         setUser(currentUser);
         localStorage.setItem('user', JSON.stringify(currentUser));
       } catch (error) {
@@ -137,7 +139,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
     const result = await apiClient.magicLogin();
     localStorage.setItem('access_token', result.access_token);
-    const currentUser = await apiClient.getCurrentUser();
+    const exchanged = await apiClient.exchangeSession();
+    localStorage.setItem('access_token', exchanged.access_token);
+    const currentUser = exchanged.user;
     localStorage.setItem('user', JSON.stringify(currentUser));
     setUser(currentUser);
   };
