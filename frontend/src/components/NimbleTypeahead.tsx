@@ -60,7 +60,11 @@ const NimbleTypeahead: React.FC<Props> = ({
   const filtered = useMemo(() => {
     if (!items || items.length === 0) return [];
     const q = text.trim().toLowerCase();
-    if (!q || q === (value.name || '').toLowerCase()) {
+    // A typed, unlinked value is echoed into the parent on every keystroke.
+    // Only bypass filtering when the displayed value is an actual selected
+    // Nimble record; otherwise value.name matching text would show every item.
+    const selectedName = (value.name || '').trim().toLowerCase();
+    if (!q || (!!value.id && q === selectedName)) {
       return items.slice(0, maxResults);
     }
     const tokens = q.split(/\s+/).filter(Boolean);
