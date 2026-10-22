@@ -116,9 +116,10 @@ failed sinks, headers/cookies/cache/redirects, authentication, public requests,
 end-to-end correlation test observes the mock upstream ID; it does not claim
 to verify live Railway logs. No production write endpoint is called.
 
-Vite dev and preview proxy directly to `http://localhost:3401` (Docker mapping).
-Use `STELLINA_API_PROXY_TARGET=http://localhost:3501` for a directly run backend;
-`scripts/start-local-dev.sh` now sets this automatically. Old `VITE_API_URL` and
+Vite dev and preview proxy directly to the shared Unoventi API at
+`http://127.0.0.1:3301`. Docker sets `STELLINA_API_PROXY_TARGET` to
+`http://host.docker.internal:3301`; `scripts/start-local-dev.sh` verifies the
+host API before starting the frontend. Old `VITE_API_URL` and
 `VITE_CORE_API_URL` values are ignored. Vite does not execute the logging
 Functions; the localhost tests exercise the helper/entry points separately.
 
@@ -132,7 +133,7 @@ Before production, use an authenticated Vercel Preview deployment to verify:
 4. Uploads, downloads, OAuth callback, public forms and other routes continue
    through their intended external rewrite or SPA route.
 
-No deployment or production configuration change is included in this patch.
+Production continues to route the same API paths to `https://api.unoventi.ai`.
 
 Reference pattern inspected: BPL `frontend/api/_proxy.js`, its exact
 `lines/current.js` entry, browser client, proxy tests and Vite/Vercel configuration.

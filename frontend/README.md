@@ -77,5 +77,11 @@ The frontend API contract remains `/api/v1/stellina/...` plus shared
 `/api/v1/core/...` endpoints. Database schema selection is backend-only; no
 separate Stellina Supabase credentials belong in the frontend environment.
 
+The backend is the canonical `unoventi-api` repository, not part of this
+repository. For local development, run it on `http://127.0.0.1:3301`, then run
+`../scripts/start-local-dev.sh` from this repository's root. Vite proxies the
+same-origin API paths to that service. Production rewrites them to
+`https://api.unoventi.ai`.
+
 API requests use same-origin URLs. See [LOGGING.md](./LOGGING.md) for the selected
 logging routes, server configuration, route inventory and verification steps.

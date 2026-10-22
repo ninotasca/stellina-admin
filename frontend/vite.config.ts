@@ -3,10 +3,10 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const target = process.env.STELLINA_API_PROXY_TARGET || env.STELLINA_API_PROXY_TARGET || 'http://localhost:3401'
+  const target = process.env.STELLINA_API_PROXY_TARGET || env.STELLINA_API_PROXY_TARGET || 'http://127.0.0.1:3301'
   const proxy = {
     '^/api/v1/(stellina|core)(/|$)': { target, changeOrigin: true },
   }
   // Vite forwards directly to the backend. Vercel runs the selected logging Functions.
-  return { plugins: [react()], server: { host: '127.0.0.1', port: 3402, strictPort: true, proxy }, preview: { proxy } }
+  return { plugins: [react()], server: { host: '127.0.0.1', port: 3401, strictPort: true, proxy }, preview: { proxy } }
 })

@@ -4,9 +4,6 @@ frontend/dist/
 frontend/.env.local
 
 # Backend
-backend/.env
-backend/venv/
-backend/__pycache__/
 
 # IDE
 .vscode/

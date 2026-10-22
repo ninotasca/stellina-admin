@@ -1,21 +1,14 @@
 services:
-  backend:
-    build:
-      context: ./backend
-    environment:
-      API_PORT: 3501
-    container_name: stellina-unovento-api-submodule
-    ports:
-      - "127.0.0.1:3401:3501"
-    volumes:
-      - ./backend:/app
-
   frontend:
     build:
       context: ./frontend
     container_name: stellina-admin-frontend
+    environment:
+      STELLINA_API_PROXY_TARGET: http://host.docker.internal:3301
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
-      - "127.0.0.1:3402:3402"
+      - "127.0.0.1:3401:3401"
     volumes:
       - ./frontend:/app
       - /app/node_modules

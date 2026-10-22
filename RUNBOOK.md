@@ -12,45 +12,38 @@ From the repository root:
 
 Expected URLs:
 
-- Frontend: http://localhost:3402
-- Backend health when using Docker: http://localhost:3401/health
-- Backend docs when using Docker: http://localhost:3401/docs
+- Frontend: http://localhost:3401
+- Shared Unoventi API health: http://127.0.0.1:3301/health
+- Shared Unoventi API docs: http://127.0.0.1:3301/docs
 
-Docker maps the backend container's internal port `3501` to host port `3401`.
-Vite's API proxy defaults to `http://localhost:3401`. Browser requests stay on
-http://localhost:3402 and are forwarded to the published backend port.
+Stellina Admin is a frontend-only repository. Its API implementation lives in
+`/Users/ninotasca/dev/unoventi/unoventi-api/app/modules/stellina` and is served
+locally by the shared Unoventi API on port `3301`.
 
-For non-Docker local startup, the helper script runs the backend directly on
-host port `3401` and passes the matching server-side proxy target.
+Vite's API proxy defaults to `http://127.0.0.1:3301`. Browser requests stay on
+http://localhost:3401 and are forwarded to the shared API. Docker uses
+`http://host.docker.internal:3301` to reach that same host process.
 
 ## Why This Script Exists
 
-Docker is the documented project path, but in the Codex desktop sandbox the Docker socket may be unavailable. The backend's `python -m app` entrypoint also starts Uvicorn with reload enabled unless a production-style `PORT` variable is set, and that file watcher can be blocked locally.
+The helper script verifies that the separately managed Unoventi API is healthy,
+then starts only the Stellina frontend:
 
-The helper script uses the path verified on June 24, 2026:
-
-- Backend: `backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 3401`
-- Frontend: `npm run dev -- --host 127.0.0.1 --port 3402 --strictPort`
+- Frontend: `npm run dev -- --host 127.0.0.1 --port 3401 --strictPort`
 - Frontend proxy override:
-  - `STELLINA_API_PROXY_TARGET=http://localhost:3401`
+  - `STELLINA_API_PROXY_TARGET=http://127.0.0.1:3301`
 
 `VITE_API_URL` and `VITE_CORE_API_URL` are no longer used. Vite dev/preview
 forward directly and do not execute Vercel logging Functions. See
 `frontend/LOGGING.md` for logging tests and deployment verification.
 
-The backend uses the primary Unoventi Supabase project for both modules. Set
-`CORE_DATABASE_SCHEMA=uno_core` and
-`STELLINA_DATABASE_SCHEMA=uno_stellina`. A legacy
-`ADDITIONAL_DATABASES.stellina` entry is not used for normal Stellina access.
+Backend configuration, database schemas, migrations, and credentials belong in
+the `unoventi-api` repository, not this frontend repository.
 
 ## If It Fails
 
-- If the backend virtualenv is missing, run this from `backend/`:
-
-```sh
-python3 -m venv .venv
-./.venv/bin/pip install -r requirements.txt
-```
+- If the API health check fails, start the canonical `unoventi-api` checkout on
+  `127.0.0.1:3301` before running this script.
 
 - If frontend dependencies are missing, run this from `frontend/`:
 
@@ -58,4 +51,5 @@ python3 -m venv .venv
 npm install
 ```
 
-- If port binding is denied in Codex, request local network permission and rerun the script.
+- To use another shared API instance, set `UNOVENTI_API_URL` when invoking the
+  script. Do not add a backend checkout to this repository.

@@ -10,6 +10,6 @@ RUN if [ -f package-lock.json ]; then npm ci; \
 
 COPY . /app
 
-EXPOSE 3402
+EXPOSE 3401
 
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3402", "--strictPort"]
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3401", "--strictPort"]
