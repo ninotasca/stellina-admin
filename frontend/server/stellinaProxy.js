@@ -4,6 +4,29 @@ const UPSTREAM_ORIGIN = 'https://api.unoventi.ai'
 const REQUEST_ID_HEADER = 'x-stellina-request-id'
 const TIMEOUT_MS = 15_000
 const LEVELS = { DEBUG: 10, INFO: 20, WARN: 30, ERROR: 40 }
+export function classifyEnvironment(values = process.env) {
+  const selected = values.ENVIRONMENT_NAME ?? values.RAILWAY_ENVIRONMENT_NAME ?? values.VERCEL_ENV ?? values.NODE_ENV
+  if (selected === undefined && (values.VERCEL || values.RAILWAY_SERVICE_ID || values.RAILWAY_DEPLOYMENT_ID)) {
+    throw new Error('Hosted environment must be identified')
+  }
+  const aliases = {
+    local: 'development', dev: 'development', development: 'development', test: 'development',
+    stage: 'staging', staging: 'staging', preview: 'staging', prod: 'production', production: 'production',
+  }
+  const raw = (selected ?? 'development').trim().toLowerCase()
+  if (!Object.hasOwn(aliases, raw)) throw new Error('Environment must be development, staging, or production')
+  return aliases[raw]
+}
+export function resolveProxyLogLevel(raw, environment = classifyEnvironment()) {
+  const classified = classifyEnvironment({ ENVIRONMENT_NAME: environment })
+  if (raw === undefined) return classified === 'development' ? LEVELS.DEBUG : LEVELS.INFO
+  const normalized = raw.trim().toUpperCase()
+  if (!Object.hasOwn(LEVELS, normalized)) throw new Error('LOG_LEVEL must be DEBUG, INFO, WARN, or ERROR')
+  return LEVELS[normalized]
+}
+
+// Reject invalid server configuration while loading the Function, before traffic.
+const minimumLevel = resolveProxyLogLevel(process.env.LOG_LEVEL)
 const METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'])
 const REQUEST_HEADERS = [
   'accept', 'authorization', 'content-type', 'cookie', 'origin',
@@ -37,8 +60,7 @@ export async function proxyStellinaRequest(request, routePath, options = {}) {
   const startedAt = now()
   const suppliedId = request.headers.get(REQUEST_ID_HEADER) || ''
   const requestId = /^[A-Za-z0-9._:-]{1,128}$/.test(suppliedId) ? suppliedId : randomUUID()
-  const setting = String(options.logLevel ?? process.env.STELLINA_LOG_LEVEL ?? 'INFO').trim().toUpperCase()
-  const threshold = Object.hasOwn(LEVELS, setting) ? LEVELS[setting] : LEVELS.INFO
+  const threshold = options.logLevel === undefined ? minimumLevel : resolveProxyLogLevel(options.logLevel, 'test')
   const logger = options.logger || console
   const context = {
     event: 'stellina.proxy.started', request_id: requestId,
