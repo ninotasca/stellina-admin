@@ -1,10 +1,28 @@
-import test from 'node:test'
+import test, { beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { gzipSync } from 'node:zlib'
-import { proxyStellinaRequest } from '../server/stellinaProxy.js'
+import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { resolveProxyLogLevel, classifyEnvironment } from '../server/stellinaProxy.js'
+
+// Initialize the test Function once under an explicit production configuration.
+const originalLevel = process.env.LOG_LEVEL
+process.env.LOG_LEVEL = 'INFO'
+const { proxyStellinaRequest } = await import('../server/stellinaProxy.js?production-instance')
+if (originalLevel === undefined) delete process.env.LOG_LEVEL
+else process.env.LOG_LEVEL = originalLevel
 
 const route = '/api/v1/stellina/commissions/projections'
+let previousEnvironment
+beforeEach(() => {
+  previousEnvironment = process.env.VERCEL_ENV
+  process.env.VERCEL_ENV = 'production'
+})
+afterEach(() => {
+  if (previousEnvironment === undefined) delete process.env.VERCEL_ENV
+  else process.env.VERCEL_ENV = previousEnvironment
+})
 const idHeader = 'x-stellina-request-id'
 const request = (init, query = '') => new Request(`https://stellina.example${route}${query}`, init)
 function recorder() {
@@ -13,6 +31,61 @@ function recorder() {
   return { entries, logger }
 }
 const options = overrides => ({ logger: recorder().logger, ...overrides })
+
+test('environment classification, precedence and startup rejection', async () => {
+  for (const [alias, expected] of [
+    ['local', 'development'], ['dev', 'development'], ['development', 'development'], ['test', 'development'],
+    ['stage', 'staging'], ['staging', 'staging'], ['preview', 'staging'], ['prod', 'production'], ['production', 'production'],
+  ]) assert.equal(classifyEnvironment({ ENVIRONMENT_NAME: alias, VERCEL_ENV: 'production' }), expected)
+  assert.equal(classifyEnvironment({ RAILWAY_ENVIRONMENT_NAME: 'preview', NODE_ENV: 'production' }), 'staging')
+  assert.equal(classifyEnvironment({ VERCEL_ENV: 'preview', NODE_ENV: 'production' }), 'staging')
+  for (const values of [{ ENVIRONMENT_NAME: '' }, { ENVIRONMENT_NAME: 'typo', VERCEL_ENV: 'production' },
+    { VERCEL_ENV: 'typo' }, { VERCEL: '1' }, { RAILWAY_SERVICE_ID: 'fixture' }, { RAILWAY_DEPLOYMENT_ID: 'fixture' }]) {
+    assert.throws(() => classifyEnvironment(values))
+  }
+  const saved = { ...process.env }
+  try {
+    process.env.ENVIRONMENT_NAME = 'private-invalid-fixture'
+    process.env.LOG_LEVEL = 'ERROR'
+    await assert.rejects(import('../server/stellinaProxy.js?invalid-environment'), /Environment must be/)
+  } finally { process.env = saved }
+})
+
+test('pinned prior/current release pairs restore filtering and correlation after rejected replacement', async () => {
+  const root = fileURLToPath(new URL('../..', import.meta.url))
+  const source = execFileSync('git', ['-C', root, 'show',
+    'd8962074d9359fa9caa6948783a23ba35dc35318:frontend/server/stellinaProxy.js'], { encoding: 'utf8' })
+  const loadPrior = async (tag) => import('data:text/javascript;base64,' + Buffer.from(source + '\n// ' + tag).toString('base64'))
+  const saved = { ...process.env }
+  try {
+    Object.assign(process.env, { ENVIRONMENT_NAME: 'production', LOG_LEVEL: 'WARN', STELLINA_LOG_LEVEL: 'WARN' })
+    const prior = await loadPrior('prior')
+    const current = await import('../server/stellinaProxy.js?recovery-current')
+    const probe = async artifact => {
+      const { entries, logger } = recorder()
+      for (const status of [200, 404, 500]) {
+        const response = await artifact.proxyStellinaRequest(request({ headers: { [idHeader]: 'recovery-fixture' } }), route, {
+          logger, fetchImpl: async (_, init) => {
+            assert.equal(init.headers.get(idHeader), 'recovery-fixture')
+            return Response.json({}, { status })
+          },
+        })
+        assert.equal(response.status, status)
+        assert.equal(response.headers.get(idHeader), 'recovery-fixture')
+      }
+      assert.deepEqual(entries.map(e => e.level), ['warn', 'error'])
+      assert.ok(entries.every(e => e.request_id === 'recovery-fixture'))
+    }
+    await probe(prior)
+    await probe(current)
+    process.env.LOG_LEVEL = 'private-invalid-fixture'
+    process.env.STELLINA_LOG_LEVEL = 'DEBUG'
+    await assert.rejects(import('../server/stellinaProxy.js?rejected-replacement'), /LOG_LEVEL must be/)
+    await probe(current)
+    Object.assign(process.env, { LOG_LEVEL: 'WARN', STELLINA_LOG_LEVEL: 'WARN' })
+    await probe(await loadPrior('restored'))
+  } finally { process.env = saved }
+})
 
 test('read forwards auth, query and one validated ID; logs completion with safe route and duration', async () => {
   const { entries, logger } = recorder()
@@ -69,7 +142,7 @@ for (const status of [400, 401, 403, 404, 405, 422, 429, 500]) {
   })
 }
 
-for (const [setting, threshold] of [['DEBUG', 10], ['info', 20], [' wArN ', 30], ['ERROR', 40], ['invalid', 20], ['toString', 20], ['', 20]]) {
+for (const [setting, threshold] of [['DEBUG', 10], ['info', 20], [' wArN ', 30], ['ERROR', 40]]) {
   test(`threshold ${JSON.stringify(setting)} is cumulative and errors remain visible`, async () => {
     for (const [status, severity] of [[200, 20], [404, 30], [500, 40]]) {
       const { entries, logger } = recorder()
@@ -91,16 +164,45 @@ for (const [setting, threshold] of [['DEBUG', 10], ['info', 20], [' wArN ', 30],
   })
 }
 
-test('default setting uses STELLINA_LOG_LEVEL without configuring other sites', async () => {
-  const previous = process.env.STELLINA_LOG_LEVEL
-  process.env.STELLINA_LOG_LEVEL = 'ERROR'
+test('initialized Function threshold is immutable', async () => {
+  const previous = process.env.LOG_LEVEL
+  process.env.LOG_LEVEL = 'ERROR'
   try {
     const { entries, logger } = recorder()
     await proxyStellinaRequest(request(), route, { logger, fetchImpl: async () => Response.json({}) })
-    assert.equal(entries.length, 0)
+    assert.equal(entries.length, 1)
+  } finally {
+    if (previous === undefined) delete process.env.LOG_LEVEL
+    else process.env.LOG_LEVEL = previous
+  }
+})
+
+test('missing defaults follow the server environment and legacy aliases are ignored', () => {
+  const previous = process.env.STELLINA_LOG_LEVEL
+  process.env.STELLINA_LOG_LEVEL = 'ERROR'
+  try {
+    for (const [mode, expected] of [['development', 10], ['staging', 20], ['production', 20]]) {
+      assert.equal(resolveProxyLogLevel(undefined, mode), expected)
+    }
   } finally {
     if (previous === undefined) delete process.env.STELLINA_LOG_LEVEL
     else process.env.STELLINA_LOG_LEVEL = previous
+  }
+})
+
+test('invalid explicit levels reject before upstream calls and at Function import', async () => {
+  for (const raw of ['', 'invalid', 'WARNING', 'toString']) {
+    let calls = 0
+    await assert.rejects(proxyStellinaRequest(request(), route, { logLevel: raw, fetchImpl: async () => { calls++; return Response.json({}) } }), /LOG_LEVEL must be/)
+    assert.equal(calls, 0)
+  }
+  const previous = process.env.LOG_LEVEL
+  process.env.LOG_LEVEL = 'invalid-secret-canary'
+  try {
+    await assert.rejects(import('../server/stellinaProxy.js?invalid-config'), { message: 'LOG_LEVEL must be DEBUG, INFO, WARN, or ERROR' })
+  } finally {
+    if (previous === undefined) delete process.env.LOG_LEVEL
+    else process.env.LOG_LEVEL = previous
   }
 })
 
