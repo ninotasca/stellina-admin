@@ -15,14 +15,29 @@ function buildVersion() {
 }
 
 export default defineConfig(({ mode }) => {
+  const aliases: Record<string, string> = {
+    local: 'development', dev: 'development', development: 'development', test: 'development',
+    stage: 'staging', staging: 'staging', preview: 'staging', prod: 'production', production: 'production',
+  }
+  const key = mode.trim().toLowerCase()
+  if (!Object.hasOwn(aliases, key)) throw new Error('Environment must be development, staging, or production')
+  const environment = aliases[key]
   const env = loadEnv(mode, process.cwd(), '')
+  const raw = process.env.VITE_CLIENT_LOG_LEVEL ?? env.VITE_CLIENT_LOG_LEVEL
+  const level = raw === undefined ? (environment === 'development' ? 'DEBUG' : environment === 'staging' ? 'WARN' : 'ERROR') : raw.trim().toUpperCase()
+  if (!['DEBUG', 'INFO', 'WARN', 'ERROR'].includes(level)) {
+    throw new Error('VITE_CLIENT_LOG_LEVEL must be DEBUG, INFO, WARN, or ERROR')
+  }
   const target = process.env.STELLINA_API_PROXY_TARGET || env.STELLINA_API_PROXY_TARGET || 'http://127.0.0.1:3301'
   const proxy = {
     '^/api/v1/(stellina|core)(/|$)': { target, changeOrigin: true },
   }
   // Vite forwards directly to the backend. Vercel runs the selected logging Functions.
   return {
-    define: { 'import.meta.env.VITE_APP_VERSION': JSON.stringify(buildVersion()) },
+    define: {
+      'import.meta.env.VITE_APP_VERSION': JSON.stringify(buildVersion()),
+      'import.meta.env.VITE_CLIENT_LOG_LEVEL': JSON.stringify(level),
+    },
     plugins: [react()],
     server: { host: '127.0.0.1', port: 3401, strictPort: true, proxy },
     preview: { proxy },

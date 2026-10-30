@@ -3,6 +3,7 @@ import axios from 'axios';
 import type { User } from '../types/api';
 import { apiClient, type PublicAuthConfig } from '../services/api';
 import { supabase } from '../services/supabase';
+import { clientLog } from '../lib/diagnostic-core';
 
 const MAGIC_LOGIN_FRONTEND_ENABLED = import.meta.env.VITE_AUTH_ENABLE_MAGIC_LOGIN === 'true';
 const SAFE_POLICY: PublicAuthConfig = {
@@ -40,18 +41,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       .then((next) => {
         if (!active) return;
         setPolicy(next);
-        console.info(JSON.stringify({
-          event: 'unoventi.auth.policy_loaded',
-          component: 'auth',
-          site_key: 'stellina',
+        clientLog('info', 'unoventi.auth.policy_loaded', {
           provider_count: next.providers.length,
           magic_login_admin: next.magic_login,
           magic_login_frontend: MAGIC_LOGIN_FRONTEND_ENABLED,
           magic_login_effective: next.magic_login && MAGIC_LOGIN_FRONTEND_ENABLED,
-        }));
+        });
       })
       .catch(() => {
-        console.warn(JSON.stringify({ event: 'unoventi.auth.policy_failed', component: 'auth', site_key: 'stellina' }));
+        clientLog('error', 'unoventi.auth.policy_failed');
       })
       .finally(() => { if (active) setPolicyLoading(false); });
     return () => { active = false; };
@@ -84,26 +82,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (supabase && axios.isAxiosError(error) && error.response?.status === 401) {
           try {
             const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
-            console.info(JSON.stringify({
-              event: signOutError
+            clientLog(signOutError ? 'warn' : 'info', signOutError
                 ? 'unoventi.auth.rejected_session_clear_failed'
-                : 'unoventi.auth.rejected_session_cleared',
-              component: 'auth',
-              site_key: 'stellina',
+                : 'unoventi.auth.rejected_session_cleared', {
               status: 401,
               success: !signOutError,
-              ...(signOutError ? { error_class: signOutError.name || 'AuthError' } : {}),
-            }));
-          } catch (signOutError) {
+              ...(signOutError ? { error_class: 'AuthError' as const } : {}),
+            });
+          } catch {
             // The app token is cleared below even if local Supabase cleanup fails.
-            console.warn(JSON.stringify({
-              event: 'unoventi.auth.rejected_session_clear_failed',
-              component: 'auth',
-              site_key: 'stellina',
+            clientLog('warn', 'unoventi.auth.rejected_session_clear_failed', {
               status: 401,
               success: false,
-              error_class: signOutError instanceof Error ? signOutError.name : 'UnknownError',
-            }));
+              error_class: 'UnknownError',
+            });
           }
           localStorage.removeItem('access_token');
           localStorage.removeItem('user');
@@ -150,8 +142,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       await apiClient.reportAuthEvent('logout');
       if (supabase) await supabase.auth.signOut({ scope: 'local' });
-    } catch (error) {
-      console.error('Logout error:', error);
+    } catch {
+      clientLog('error', 'unoventi.auth.logout_failed', { error_class: 'AuthError' });
     } finally {
       localStorage.removeItem('access_token');
       localStorage.removeItem('user');
