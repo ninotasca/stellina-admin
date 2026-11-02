@@ -4,6 +4,16 @@ const UPSTREAM_ORIGIN = 'https://api.unoventi.ai'
 const REQUEST_ID_HEADER = 'x-stellina-request-id'
 const TIMEOUT_MS = 15_000
 const LEVELS = { DEBUG: 10, INFO: 20, WARN: 30, ERROR: 40 }
+
+export function serverLogLevel(configured = process.env.LOG_LEVEL, environment = process.env.VERCEL_ENV || process.env.NODE_ENV || 'development') {
+  if (configured === undefined) return ['local', 'dev', 'development', 'test'].includes(environment.toLowerCase()) ? LEVELS.DEBUG : LEVELS.INFO
+  const normalized = String(configured).trim().toUpperCase()
+  if (!Object.hasOwn(LEVELS, normalized)) throw new Error('LOG_LEVEL must be DEBUG, INFO, WARN, or ERROR')
+  return LEVELS[normalized]
+}
+
+// Both deployed Function entry points import this module before serving traffic.
+serverLogLevel()
 const METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'])
 const REQUEST_HEADERS = [
   'accept', 'authorization', 'content-type', 'cookie', 'origin',
@@ -37,8 +47,7 @@ export async function proxyStellinaRequest(request, routePath, options = {}) {
   const startedAt = now()
   const suppliedId = request.headers.get(REQUEST_ID_HEADER) || ''
   const requestId = /^[A-Za-z0-9._:-]{1,128}$/.test(suppliedId) ? suppliedId : randomUUID()
-  const setting = String(options.logLevel ?? process.env.STELLINA_LOG_LEVEL ?? 'INFO').trim().toUpperCase()
-  const threshold = Object.hasOwn(LEVELS, setting) ? LEVELS[setting] : LEVELS.INFO
+  const threshold = serverLogLevel(options.logLevel)
   const logger = options.logger || console
   const context = {
     event: 'stellina.proxy.started', request_id: requestId,

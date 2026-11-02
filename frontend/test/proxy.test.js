@@ -1,8 +1,15 @@
-import test from 'node:test'
+import test, { beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { gzipSync } from 'node:zlib'
-import { proxyStellinaRequest } from '../server/stellinaProxy.js'
+import { proxyStellinaRequest, serverLogLevel } from '../server/stellinaProxy.js'
+
+const originalLogLevel = process.env.LOG_LEVEL
+beforeEach(() => { process.env.LOG_LEVEL = 'INFO' })
+afterEach(() => {
+  if (originalLogLevel === undefined) delete process.env.LOG_LEVEL
+  else process.env.LOG_LEVEL = originalLogLevel
+})
 
 const route = '/api/v1/stellina/commissions/projections'
 const idHeader = 'x-stellina-request-id'
@@ -69,7 +76,7 @@ for (const status of [400, 401, 403, 404, 405, 422, 429, 500]) {
   })
 }
 
-for (const [setting, threshold] of [['DEBUG', 10], ['info', 20], [' wArN ', 30], ['ERROR', 40], ['invalid', 20], ['toString', 20], ['', 20]]) {
+for (const [setting, threshold] of [['DEBUG', 10], ['info', 20], [' wArN ', 30], ['ERROR', 40]]) {
   test(`threshold ${JSON.stringify(setting)} is cumulative and errors remain visible`, async () => {
     for (const [status, severity] of [[200, 20], [404, 30], [500, 40]]) {
       const { entries, logger } = recorder()
@@ -91,16 +98,47 @@ for (const [setting, threshold] of [['DEBUG', 10], ['info', 20], [' wArN ', 30],
   })
 }
 
-test('default setting uses STELLINA_LOG_LEVEL without configuring other sites', async () => {
-  const previous = process.env.STELLINA_LOG_LEVEL
-  process.env.STELLINA_LOG_LEVEL = 'ERROR'
+test('default setting uses LOG_LEVEL', async () => {
+  const previous = process.env.LOG_LEVEL
+  process.env.LOG_LEVEL = 'ERROR'
   try {
     const { entries, logger } = recorder()
     await proxyStellinaRequest(request(), route, { logger, fetchImpl: async () => Response.json({}) })
     assert.equal(entries.length, 0)
   } finally {
+    if (previous === undefined) delete process.env.LOG_LEVEL
+    else process.env.LOG_LEVEL = previous
+  }
+})
+
+test('missing levels use environment defaults and ignore the legacy alias', () => {
+  delete process.env.LOG_LEVEL
+  const previous = process.env.STELLINA_LOG_LEVEL
+  process.env.STELLINA_LOG_LEVEL = 'ERROR'
+  try {
+    for (const [mode, expected] of [['development', 10], ['staging', 20], ['preview', 20], ['production', 20]]) {
+      assert.equal(serverLogLevel(undefined, mode), expected)
+    }
+  } finally {
     if (previous === undefined) delete process.env.STELLINA_LOG_LEVEL
     else process.env.STELLINA_LOG_LEVEL = previous
+  }
+})
+
+test('invalid levels reject initialization and never invoke upstream fetch', async () => {
+  for (const mode of ['development', 'staging', 'production']) {
+    for (const value of ['', ' ', 'WARNING', 'CRITICAL', 'private-invalid-value', 'toString']) {
+      process.env.LOG_LEVEL = value
+      assert.throws(() => serverLogLevel(value, mode), { message: 'LOG_LEVEL must be DEBUG, INFO, WARN, or ERROR' })
+      let called = false
+      await assert.rejects(proxyStellinaRequest(request(), route, {
+        fetchImpl: async () => { called = true; return Response.json({}) },
+      }), { message: 'LOG_LEVEL must be DEBUG, INFO, WARN, or ERROR' })
+      assert.equal(called, false)
+      await assert.rejects(import('../server/stellinaProxy.js?invalid=' + encodeURIComponent(mode + value)), {
+        message: 'LOG_LEVEL must be DEBUG, INFO, WARN, or ERROR',
+      })
+    }
   }
 })
 
