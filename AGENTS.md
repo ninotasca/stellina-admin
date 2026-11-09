@@ -15,6 +15,12 @@ Local development expects the shared API at `http://127.0.0.1:3301` and the
 frontend at `http://127.0.0.1:3401`. Production same-origin API routes are
 rewritten to `https://api.unoventi.ai`.
 
+From the workspace root, prefer
+`python3 unoventi-agents/ops/local_dev.py start stellina-admin`; it validates
+the tracked local contract, starts the API through `python -m app` on `3301`,
+and refuses the legacy incorrect API port. This guard is local-only and does
+not replace the production rewrite.
+
 When a task changes an API contract, inspect and update both this repository and
 `unoventi-api`. Stellina code may depend on shared core contracts; it must not
 depend on another product's module or schema.
