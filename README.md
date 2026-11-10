@@ -21,3 +21,12 @@ variable because Vite exposes it to the browser.
 The server-side API proxy uses a safe `INFO` logging default in production;
 development traffic is proxied directly by Vite. A hosted `STELLINA_LOG_LEVEL`
 override is optional rather than required frontend configuration.
+
+## Authentication
+
+Stellina uses the shared Unoventi authentication framework documented in the
+[canonical authentication guide](https://github.com/ninotasca/unoventi-admin/blob/main/README_AUTHENTICATION.md).
+Magic Login requires both the frontend visibility flag and the backend's
+effective site capability. The shared API always disables that capability in
+production and rejects direct Magic Login requests regardless of frontend or
+site-policy settings.
