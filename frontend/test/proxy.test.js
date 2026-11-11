@@ -326,8 +326,23 @@ test('localhost: correlation, compressed JSON, connection failure, invalid JSON,
   try {
     for (const [mode, status] of [['success', 200], ['failure', 500], ['disconnect', 502], ['stall', 504], ['broken-body', 502], ['invalid', 200]]) {
       const { entries, logger } = recorder()
-      const response = await proxyStellinaRequest(request({ headers: { [idHeader]: `localhost-${mode}` } }, `?mode=${mode}`), route, { logger, upstreamOrigin: origin, timeoutMs: 100 })
+      // Ordinary requests need headroom for fetch startup and concurrent builds.
+      // Keep a bounded stalled-body deadline, independently of success latency.
+      let receivedHeaders = false
+      const response = await proxyStellinaRequest(request({ headers: { [idHeader]: `localhost-${mode}` } }, `?mode=${mode}`), route, {
+        logger, upstreamOrigin: origin, timeoutMs: mode === 'stall' ? 1000 : 5000,
+        fetchImpl: async (...args) => {
+          const upstream = await fetch(...args)
+          receivedHeaders = true
+          return upstream
+        },
+      })
       assert.equal(response.status, status, mode)
+      if (mode === 'stall') {
+        assert.equal(receivedHeaders, true, 'timeout must cover a stalled body after headers')
+        assert.equal(entries.at(-1).event, 'stellina.proxy.timed_out')
+        assert.equal(entries.at(-1).error_type, 'UpstreamTimeout')
+      }
       assert.equal(response.headers.get(idHeader), `localhost-${mode}`)
       assert.equal(entries.at(-1).request_id, received.at(-1).request_id)
       assert.equal(entries.at(-1).status, status)

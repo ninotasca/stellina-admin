@@ -14,15 +14,25 @@ function buildVersion() {
   }
 }
 
-export default defineConfig(({ mode }) => {
+// Deployment selectors are process inputs: resolve them before reading any .env file.
+export function resolveBuildEnvironment(mode: string | undefined, values = process.env) {
+  const selected = [values.ENVIRONMENT_NAME, values.RAILWAY_ENVIRONMENT_NAME, values.VERCEL_ENV, mode]
+    .find(value => value?.trim())
+  if (selected === undefined && (values.VERCEL || values.RAILWAY_SERVICE_ID || values.RAILWAY_DEPLOYMENT_ID)) {
+    throw new Error('Hosted environment must be identified')
+  }
   const aliases: Record<string, string> = {
     local: 'development', dev: 'development', development: 'development', test: 'development',
     stage: 'staging', staging: 'staging', preview: 'staging', prod: 'production', production: 'production',
   }
-  const key = mode.trim().toLowerCase()
+  const key = (selected ?? 'development').trim().toLowerCase()
   if (!Object.hasOwn(aliases, key)) throw new Error('Environment must be development, staging, or production')
-  const environment = aliases[key]
-  const env = loadEnv(mode, process.cwd(), '')
+  return aliases[key]
+}
+
+export default defineConfig(({ mode }) => {
+  const environment = resolveBuildEnvironment(mode)
+  const env = loadEnv(environment, process.cwd(), '')
   const raw = process.env.VITE_CLIENT_LOG_LEVEL ?? env.VITE_CLIENT_LOG_LEVEL
   const level = raw === undefined ? (environment === 'development' ? 'DEBUG' : environment === 'staging' ? 'WARN' : 'ERROR') : raw.trim().toUpperCase()
   if (!['DEBUG', 'INFO', 'WARN', 'ERROR'].includes(level)) {
@@ -34,7 +44,15 @@ export default defineConfig(({ mode }) => {
   }
   // Vite forwards directly to the backend. Vercel runs the selected logging Functions.
   return {
+    mode: environment,
+    // Vite's CLI --mode takes precedence over config.mode. Disable its second
+    // env-file load so a conflicting CLI mode cannot reintroduce development values.
+    envDir: false,
     define: {
+      ...Object.fromEntries(Object.entries(env)
+        .filter(([key]) => key.startsWith('VITE_'))
+        .map(([key, value]) => [`import.meta.env.${key}`, JSON.stringify(value)])),
+      'import.meta.env.MODE': JSON.stringify(environment),
       'import.meta.env.VITE_APP_VERSION': JSON.stringify(buildVersion()),
       'import.meta.env.VITE_CLIENT_LOG_LEVEL': JSON.stringify(level),
     },
