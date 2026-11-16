@@ -22,21 +22,24 @@ const messages = {
   'unoventi.auth.rejected_session_cleared': 'Rejected session cleared',
   'unoventi.auth.rejected_session_clear_failed': 'Rejected session cleanup failed',
   'unoventi.auth.logout_failed': 'Logout failed',
+  'stellina.rfp.save_failed': 'Failed to save RFP',
+  'stellina.rfp.invitations_load_failed': 'Failed to load hotel invitations',
+  'stellina.rfp.responses_load_failed': 'Failed to load response comparison',
 };
-type AuthDiagnosticFields = {
+type ClientDiagnosticFields = {
   provider_count?: number;
   magic_login_admin?: boolean;
   magic_login_frontend?: boolean;
   magic_login_effective?: boolean;
   status?: number;
   success?: boolean;
-  error_class?: 'AuthError' | 'UnknownError';
+  error_class?: 'AuthError' | 'UnknownError' | 'HttpError' | 'NetworkError';
 };
 
-export function clientLog(level: ClientLogLevel, event: keyof typeof messages, fields: AuthDiagnosticFields = {}): void {
+export function clientLog(level: ClientLogLevel, event: keyof typeof messages, fields: ClientDiagnosticFields = {}): void {
   try {
     if (levels[level] < minimumLevel || !Object.hasOwn(messages, event)) return;
-    const safe: AuthDiagnosticFields = {};
+    const safe: ClientDiagnosticFields = {};
     const providerCount = fields.provider_count;
     if (typeof providerCount === 'number' && Number.isInteger(providerCount) && providerCount >= 0 && providerCount <= 100) safe.provider_count = providerCount;
     for (const key of ['magic_login_admin', 'magic_login_frontend', 'magic_login_effective', 'success'] as const) {
@@ -46,12 +49,12 @@ export function clientLog(level: ClientLogLevel, event: keyof typeof messages, f
     const status = fields.status;
     if (typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599) safe.status = status;
     const errorClass = fields.error_class;
-    if (errorClass === 'AuthError' || errorClass === 'UnknownError') safe.error_class = errorClass;
+    if (errorClass === 'AuthError' || errorClass === 'UnknownError' || errorClass === 'HttpError' || errorClass === 'NetworkError') safe.error_class = errorClass;
     const output = JSON.stringify({
       timestamp: new Date().toISOString(), level, message: messages[event],
       service: 'stellina-admin-web', environment: import.meta.env.MODE,
-      component: 'auth', event, site_key: 'stellina', ...safe,
+      component: event.startsWith('stellina.rfp.') ? 'rfp' : 'auth', event, site_key: 'stellina', ...safe,
     });
     console[level](output);
-  } catch { /* Browser diagnostics must never change an authentication outcome. */ }
+  } catch { /* Browser diagnostics must never change a request outcome. */ }
 }

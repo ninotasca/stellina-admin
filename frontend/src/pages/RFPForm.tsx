@@ -1,3 +1,4 @@
+import { logRfpFailure } from '../lib/rfp-diagnostics';
 import { getApiErrorMessage } from '../services/http';
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -236,7 +237,7 @@ const RFPForm: React.FC = () => {
       navigate(`/commissions/${eventId}`);
     } catch (err: any) {
       setError(getApiErrorMessage(err, 'Failed to save RFP'));
-      console.error(err);
+      logRfpFailure('stellina.rfp.save_failed', err);
     } finally {
       setLoading(false);
     }

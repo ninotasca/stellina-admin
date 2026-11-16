@@ -1,3 +1,4 @@
+import { logRfpFailure } from '../lib/rfp-diagnostics';
 import { getApiErrorMessage } from '../services/http';
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -37,7 +38,7 @@ const HotelInvitations: React.FC = () => {
       setEvent(eventData);
       setInvitations(invitationsData);
     } catch (err) {
-      console.error('Failed to load data', err);
+      logRfpFailure('stellina.rfp.invitations_load_failed', err);
     } finally {
       setLoading(false);
     }
