@@ -27,10 +27,80 @@ const idHeader = 'x-stellina-request-id'
 const request = (init, query = '') => new Request(`https://stellina.example${route}${query}`, init)
 function recorder() {
   const entries = []
-  const logger = Object.fromEntries(['info', 'warn', 'error'].map(channel => [channel, line => entries.push({ channel, ...JSON.parse(line) })]))
-  return { entries, logger }
+  const lines = []
+  const logger = Object.fromEntries(['info', 'warn', 'error'].map(channel => [channel, line => {
+    lines.push(line)
+    entries.push({ channel, ...JSON.parse(line) })
+  }]))
+  return { entries, lines, logger }
 }
 const options = overrides => ({ logger: recorder().logger, ...overrides })
+
+for (const [outcome, status, event, level, errorType] of [
+  ['success', 200, 'completed', 'info'],
+  ['client error', 404, 'completed', 'warn'],
+  ['server error', 500, 'completed', 'error'],
+  ['connection failure', 502, 'failed', 'error', 'UpstreamConnectionError'],
+  ['body failure', 502, 'failed', 'error', 'UpstreamConnectionError'],
+  ['cancellation', 502, 'failed', 'error', 'RequestCancelled'],
+  ['timeout', 504, 'timed_out', 'error', 'UpstreamTimeout'],
+]) {
+  test(`${outcome} emits single-line JSON with fixed readable messages and preserves proxy context`, async () => {
+    const { entries, lines, logger } = recorder()
+    const controller = new AbortController()
+    if (outcome === 'cancellation') controller.abort()
+    const response = await proxyStellinaRequest(request({
+      signal: controller.signal, headers: { [idHeader]: 'message-fixture' },
+    }), route, {
+      logger, logLevel: 'DEBUG', timeoutMs: 10, now: () => 100,
+      fetchImpl: async (_, init) => {
+        assert.equal(init.headers.get(idHeader), 'message-fixture')
+        if (outcome === 'timeout') {
+          return new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(new Error('private timeout')), { once: true }))
+        }
+        if (outcome === 'connection failure' || outcome === 'cancellation') throw new Error('private failure')
+        if (outcome === 'body failure') {
+          return new Response(new ReadableStream({ start(stream) { stream.error(new Error('private body')) } }))
+        }
+        return Response.json({ ok: true }, { status, headers: { 'cache-control': 'private' } })
+      },
+    })
+    assert.equal(response.status, status)
+    assert.equal(response.headers.get(idHeader), 'message-fixture')
+    assert.equal(response.headers.get('cache-control'), errorType ? 'no-store' : 'private')
+    assert.deepEqual(await response.json(), errorType ? {
+      detail: outcome === 'timeout' ? 'The Stellina data service took too long to respond.' : 'Stellina could not reach the data service.',
+      request_id: 'message-fixture',
+    } : { ok: true })
+    const expectedMessages = {
+      'stellina.proxy.started': 'Stellina proxy request started.',
+      'stellina.proxy.completed': 'Stellina proxy request completed.',
+      'stellina.proxy.failed': 'Stellina proxy upstream request failed.',
+      'stellina.proxy.timed_out': 'Stellina proxy upstream request timed out.',
+    }
+    assert.deepEqual(entries.map(entry => entry.event), ['stellina.proxy.started', `stellina.proxy.${event}`])
+    assert.equal(lines.length, 2)
+    for (const line of lines) {
+      assert.equal(typeof line, 'string')
+      assert.doesNotMatch(line, /[\r\n]/)
+      const entry = JSON.parse(line)
+      assert.equal(entry.message, expectedMessages[entry.event])
+      assert.equal(entry.service, 'stellina-web')
+      assert.equal(entry.component, 'api-proxy')
+      assert.equal(entry.request_id, 'message-fixture')
+      assert.equal(entry.route, route)
+      assert.equal(entry.method, 'GET')
+      assert.ok(!Number.isNaN(Date.parse(entry.timestamp)))
+    }
+    assert.equal(entries[0].level, 'debug')
+    assert.equal(entries[0].channel, 'info')
+    assert.equal(entries[1].level, level)
+    assert.equal(entries[1].channel, level)
+    assert.equal(entries[1].status, status)
+    assert.equal(entries[1].duration_ms, 0)
+    assert.equal(entries[1].error_type, errorType)
+  })
+}
 
 test('environment classification, precedence and startup rejection', async () => {
   for (const [alias, expected] of [

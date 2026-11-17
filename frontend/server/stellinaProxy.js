@@ -67,7 +67,7 @@ export async function proxyStellinaRequest(request, routePath, options = {}) {
     method: METHODS.has(request.method) ? request.method : 'OTHER', route: routePath,
   }
   const log = (level, fields) => emit(logger, threshold, level, { ...context, ...fields })
-  log('debug', {})
+  log('debug', { message: 'Stellina proxy request started.' })
 
   const controller = new AbortController()
   let timedOut = false
@@ -104,12 +104,14 @@ export async function proxyStellinaRequest(request, routePath, options = {}) {
     const duration = Math.max(0, Math.round(now() - startedAt))
     log(upstream.status >= 500 ? 'error' : upstream.status >= 400 || duration >= 5000 ? 'warn' : 'info', {
       event: 'stellina.proxy.completed', status: upstream.status, duration_ms: duration,
+      message: 'Stellina proxy request completed.',
     })
     return new Response(body, { status: upstream.status, statusText: upstream.statusText, headers: responseHeaders })
   } catch {
     const status = timedOut ? 504 : 502
     log('error', {
       event: timedOut ? 'stellina.proxy.timed_out' : 'stellina.proxy.failed',
+      message: timedOut ? 'Stellina proxy upstream request timed out.' : 'Stellina proxy upstream request failed.',
       status, duration_ms: Math.max(0, Math.round(now() - startedAt)),
       error_type: timedOut ? 'UpstreamTimeout' : request.signal.aborted ? 'RequestCancelled' : 'UpstreamConnectionError',
     })
