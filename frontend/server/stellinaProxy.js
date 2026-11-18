@@ -26,7 +26,8 @@ export function resolveProxyLogLevel(raw, environment = classifyEnvironment()) {
 }
 
 // Reject invalid server configuration while loading the Function, before traffic.
-const minimumLevel = resolveProxyLogLevel(process.env.LOG_LEVEL)
+const environment = classifyEnvironment()
+const minimumLevel = resolveProxyLogLevel(process.env.LOG_LEVEL, environment)
 const METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'])
 const REQUEST_HEADERS = [
   'accept', 'authorization', 'content-type', 'cookie', 'origin',
@@ -48,7 +49,7 @@ function emit(logger, threshold, level, fields) {
   try {
     logger[method](JSON.stringify({
       timestamp: new Date().toISOString(), level, service: 'stellina-web',
-      component: 'api-proxy', ...fields,
+      component: 'api-proxy', environment, ...fields,
     }))
   } catch { /* A log sink must never break a request. */ }
 }
@@ -63,7 +64,7 @@ export async function proxyStellinaRequest(request, routePath, options = {}) {
   const threshold = options.logLevel === undefined ? minimumLevel : resolveProxyLogLevel(options.logLevel, 'test')
   const logger = options.logger || console
   const context = {
-    event: 'stellina.proxy.started', request_id: requestId,
+    event: 'stellina.proxy.started', request_id: requestId, correlation_id: requestId,
     method: METHODS.has(request.method) ? request.method : 'OTHER', route: routePath,
   }
   const log = (level, fields) => emit(logger, threshold, level, { ...context, ...fields })

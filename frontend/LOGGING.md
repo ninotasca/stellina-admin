@@ -171,3 +171,30 @@ failure coverage, shorter timeout and preservation of Stellina's Axios clients.
 Platform references: [Node Functions](https://vercel.com/docs/functions/runtimes/node-js),
 [rewrites](https://vercel.com/docs/routing/rewrites),
 [configuration](https://vercel.com/docs/project-configuration/vercel-json).
+
+## Logging regression coverage (NIN-262)
+
+Proxy events now include the initialized, normalized `environment` and a
+`correlation_id` equal to the validated or generated `request_id`. Existing
+request headers, response IDs, routes and readable messages retain their
+contract. These additive fields close gaps exposed by the required-field tests.
+
+The browser source guard covers all application source outside the central
+adapter. RFP page probes exercise create/edit failures and each dependent load
+failure, verify the complete safe envelope, and reject an injected raw-error
+logging regression on each page. Proxy captures verify every common required
+field on start, completion, failure and timeout events, reject omission of each
+field, and check supplied/generated correlation and deployment environments.
+
+Bounded checks from `frontend/`:
+
+```sh
+node --import ./test/register.mjs --test test/auth-diagnostics.test.js test/diagnostic-core.test.js test/rfp-diagnostics.test.js
+node --test test/proxy.test.js
+```
+
+Local capture does not verify hosted Vercel collection. Before promotion, check
+that Preview start/outcome events contain the normalized environment and the
+same correlation ID as the response request ID. Roll back this bounded change
+by reverting its application diff and rerunning these checks; this restores the
+prior schema, including its missing environment/correlation fields.

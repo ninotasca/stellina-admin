@@ -9,7 +9,7 @@ const pages = { RFPForm: 'save_failed', HotelInvitations: 'invitations_load_fail
 
 // Run real pages, API clients, bearer interceptors, error normalization and
 // diagnostics. Only rendering/router and rich-text UI are replaced.
-async function compile(page, contained = false) {
+async function compile(page, contained = false, unsafe = false) {
   const output = await build({
     root, configFile: false, mode: 'production', logLevel: 'silent',
     esbuild: { jsx: 'transform' },
@@ -21,7 +21,7 @@ async function compile(page, contained = false) {
         if (id === 'react') return '\0react'
         if (id === 'react-router-dom') return '\0router'
         if (id.endsWith('/RichTextInput')) return '\0richtext'
-        if (contained && (id.endsWith('/rfp-diagnostics') || id.endsWith('/rfp-diagnostics.ts'))) return '\0contained'
+        if ((contained || unsafe) && (id.endsWith('/rfp-diagnostics') || id.endsWith('/rfp-diagnostics.ts'))) return '\0contained'
       },
       load(id) {
         if (id === '\0axios') return `import axios from ${JSON.stringify(`${root}/node_modules/axios/index.js`)};
@@ -41,14 +41,16 @@ async function compile(page, contained = false) {
         if (id === '\0router') return `export const useParams = () => globalThis.__rfpFixture.params;
           export const useNavigate = () => path => globalThis.__rfpFixture.navigation.push(path);`
         if (id === '\0richtext') return 'export default function RichTextInput() {}'
-        // Model a forward correction removing only the affected diagnostics.
-        if (id === '\0contained') return 'export function logRfpFailure() {}'
+        // Exercise containment and an unsafe raw-error regression through real page handlers.
+        if (id === '\0contained') return unsafe
+          ? 'export function logRfpFailure(event, error) { console.error(error); }'
+          : 'export function logRfpFailure() {}'
       },
     }],
     build: { write: false, minify: false, lib: { entry: `${root}/fixture-entry`, formats: ['es'] } },
   })
   const code = (Array.isArray(output) ? output : [output]).flatMap(bundle => bundle.output).find(item => item.type === 'chunk').code
-  return import('data:text/javascript;base64,' + Buffer.from(code + `\n//# sourceURL=rfp-${page}-${contained}.js`).toString('base64'))
+  return import('data:text/javascript;base64,' + Buffer.from(code + `\n//# sourceURL=rfp-${page}-${contained}-${unsafe}.js`).toString('base64'))
 }
 function nodes(tree) {
   if (Array.isArray(tree)) return tree.flatMap(nodes)
@@ -126,6 +128,19 @@ async function probe(mod, page, { status = 401, stage = 'rfp', edit = false, con
       assert.equal(diagnostic.error_class, status === null ? 'NetworkError' : 'HttpError')
       assert.equal(diagnostic.status, status ?? undefined)
       assert.equal(diagnostic.environment, 'production')
+      assert.equal(diagnostic.level, 'error')
+      assert.equal(diagnostic.service, 'stellina-admin-web')
+      assert.equal(diagnostic.site_key, 'stellina')
+      assert.equal(diagnostic.message, {
+        RFPForm: 'Failed to save RFP',
+        HotelInvitations: 'Failed to load hotel invitations',
+        ResponseComparison: 'Failed to load response comparison',
+      }[page])
+      assert.ok(Number.isFinite(Date.parse(diagnostic.timestamp)))
+      assert.deepEqual(Object.keys(diagnostic).sort(), [
+        'timestamp', 'level', 'message', 'service', 'environment', 'component', 'event', 'site_key', 'error_class',
+        ...(status === null ? [] : ['status']),
+      ].sort())
     }
   } finally {
     Object.assign(console, sinks)
@@ -162,6 +177,10 @@ for (const page of Object.keys(pages)) {
         assert.doesNotThrow(() => mod.logRfpFailure('stellina.rfp.save_failed', hostile))
       } finally { console.error = sink }
     }
+  })
+  test(`${page}: unsafe raw-error logging mutation is rejected by the page failure probe`, async () => {
+    const unsafe = await compile(page, false, true)
+    await assert.rejects(probe(unsafe, page), /no credential or arbitrary error surface reaches console/)
   })
   test(`${page}: forward containment disables diagnostics and retains failure behavior`, async () => {
     await probe(await compile(page, true), page, { contained: true })
