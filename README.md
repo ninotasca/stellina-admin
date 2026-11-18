@@ -34,8 +34,8 @@ affecting a local production build. Never place a backend secret in a `VITE_*`
 variable because Vite exposes it to the browser.
 
 The server-side API proxy uses a safe `INFO` logging default in production;
-development traffic is proxied directly by Vite. A hosted `STELLINA_LOG_LEVEL`
-override is optional rather than required frontend configuration.
+development traffic is proxied directly by Vite. The optional server override
+is `LOG_LEVEL` (`DEBUG`, `INFO`, `WARN`, or `ERROR`); `STELLINA_LOG_LEVEL` is ignored.
 
 ## Authentication
 
@@ -89,3 +89,25 @@ asserts headers arrived before timeout. Independent injected-fetch tests retain
 their two-millisecond timeout coverage. Full-suite execution belongs to the
 Harness; implementation checks target environment builds, diagnostics, proxy
 behavior, and lint. No additional assurance uplift was identified.
+
+## Proxy log envelope release check
+
+For NIN-260 (AP-200), run `node --test test/proxy.test.js` from `frontend`.
+The proxy captures its classified `environment` at Function startup, alongside
+its log threshold. Every emitted event includes a fixed readable `message`;
+request events expose the validated `x-stellina-request-id` as `correlation_id`.
+The existing `request_id`, upstream/response header, and gateway body reference
+remain available for compatibility. This change does not migrate HTTP headers.
+
+The application owner should release to one preview deployment first, then a
+bounded group of existing users before wider promotion. Verify a successful
+request and a controlled upstream failure: status/body behavior must remain
+healthy, and Runtime Logs must contain `environment`, `message`, and a
+`correlation_id` matching the response reference. Keep the existing threshold;
+DEBUG start events are checked automatically without raising hosted verbosity.
+Stop promotion on missing fields, mismatched references, or response regressions.
+Retain the last healthy deployment and its environment/threshold settings. If
+health regresses, restore that deployment and settings, or revert the NIN-260
+application change and rebuild/redeploy; repeat the same health checks. Reverting
+also restores the prior missing log fields. Hosted rollout and health evidence
+remain release-time checks; local tests do not establish them.
