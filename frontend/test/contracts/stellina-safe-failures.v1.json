@@ -1,0 +1,187 @@
+{
+  "contract_version": "stellina-safe-failures.v1",
+  "components": {
+    "schemas": {
+      "AuthenticationFailureResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/AuthenticationFailureDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "AuthenticationFailureResponse"
+      },
+      "AuthenticationFailureDetail": {
+        "properties": {
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._:-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id"
+          },
+          "code": {
+            "type": "string",
+            "const": "authentication_failed",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "const": "Authentication failed. Please try again.",
+            "title": "Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "AuthenticationFailureDetail"
+      },
+      "StorageUploadFailureResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/StorageUploadFailureDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "StorageUploadFailureResponse"
+      },
+      "StorageUploadFailureDetail": {
+        "properties": {
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._:-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id"
+          },
+          "code": {
+            "type": "string",
+            "const": "storage_upload_failed",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "const": "Storage upload failed. Please try again.",
+            "title": "Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "StorageUploadFailureDetail"
+      }
+    }
+  },
+  "operations": [
+    {
+      "path": "/api/v1/stellina/auth/google",
+      "method": "post",
+      "status": 500,
+      "response": {
+        "description": "Unexpected authentication failure (safe v1 error envelope).",
+        "headers": {
+          "x-correlation-id": {
+            "description": "Safe diagnostic reference, when request correlation context exists.",
+            "schema": {
+              "type": "string",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AuthenticationFailureResponse"
+            }
+          }
+        }
+      },
+      "examples": [
+        {
+          "detail": {
+            "code": "authentication_failed",
+            "message": "Authentication failed. Please try again."
+          }
+        },
+        {
+          "detail": {
+            "code": "authentication_failed",
+            "message": "Authentication failed. Please try again.",
+            "correlation_id": "nin311-reference"
+          }
+        }
+      ]
+    },
+    {
+      "path": "/api/v1/stellina/commissions/{event_id}/cvent-tracker/uploads",
+      "method": "post",
+      "status": 502,
+      "response": {
+        "description": "Storage write failed (safe v1 error envelope). Reconcile partial uploads before manually retrying.",
+        "headers": {
+          "x-correlation-id": {
+            "description": "Safe diagnostic reference, when request correlation context exists.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/StorageUploadFailureResponse"
+            }
+          }
+        }
+      },
+      "examples": [
+        {
+          "detail": {
+            "code": "storage_upload_failed",
+            "message": "Storage upload failed. Please try again."
+          }
+        },
+        {
+          "detail": {
+            "code": "storage_upload_failed",
+            "message": "Storage upload failed. Please try again.",
+            "correlation_id": "nin311-reference"
+          }
+        }
+      ]
+    }
+  ]
+}
