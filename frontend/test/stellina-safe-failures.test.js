@@ -41,8 +41,10 @@ for (const operation of contract.operations) {
       await assert.rejects(request(), error => {
         assert.ok(axios.isAxiosError(error))
         assert.equal(error.response.status, operation.status)
-        assert.equal(error.response.data.detail, safeMessage)
-        assert.equal(getApiErrorMessage(error, 'Upload failed'), safeMessage)
+        const reference = body.detail.correlation_id
+        const expectedMessage = reference ? `${safeMessage} Reference: ${reference}` : safeMessage
+        assert.equal(error.response.data.detail, expectedMessage)
+        assert.equal(getApiErrorMessage(error, 'Upload failed'), expectedMessage)
         assert.equal(typeof error.response.data.detail, 'string')
         assert.equal(error.response.headers['x-correlation-id'], body.detail.correlation_id)
         return true
