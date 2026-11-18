@@ -62,7 +62,7 @@ its own domain/SameSite/CSRF review.
 - Thresholds are case-insensitive ERROR/WARN/INFO/DEBUG, default INFO, invalid
   values fall back to INFO. Errors use `console.error`, warnings `console.warn`,
   and INFO/DEBUG `console.info`. A failed log sink cannot break a request.
-- Logs contain timestamp, level, service, component, event, request ID, fixed
+- Logs contain timestamp, level, fixed readable message, service, component, event, request ID, fixed
   route, bounded method, status, duration and (on failure) a safe classification.
   They contain no query values, bodies, tokens, cookies, arbitrary headers,
   exception messages or stack traces, including at DEBUG.
@@ -134,6 +134,34 @@ Before production, use an authenticated Vercel Preview deployment to verify:
    through their intended external rewrite or SPA route.
 
 Production continues to route the same API paths to `https://api.unoventi.ai`.
+
+## Readable proxy messages (NIN-259)
+
+Every emitted proxy event includes a fixed `message`: start and completion
+describe the request lifecycle; gateway failures and timeouts describe the
+upstream failure. Messages contain no request or exception text. Existing event
+names, filtering, severity, correlation fields and HTTP behavior are retained.
+
+Run `node --test test/proxy.test.js` from `frontend/` for captured-output checks
+covering success, upstream 4xx/5xx, connection/body failures, cancellation and
+timeout. Each case at DEBUG checks both emitted lines, their exact messages,
+single-line JSON, context and response behavior.
+
+Release only to an authenticated Preview first, limited to the two existing
+Function routes listed above. Check health response status/body and request ID
+against the prior release, and verify the completion message in Vercel logs.
+Temporarily use `LOG_LEVEL=DEBUG` in Preview to verify the start message; exercise
+a controlled gateway failure in an isolated test deployment and verify its
+failure/timeout message and safe 502/504 response. Restore the intended log
+threshold afterward. Record the Preview deployment ID, health result and
+sanitized event samples before promotion. Stop promotion for missing messages,
+changed routing/response behavior or lost correlation. Hosted checks remain a
+release gate; local captures do not establish hosted health.
+
+To revert, restore the prior Stellina Admin Vercel deployment, or revert the
+NIN-259 application change and rebuild/redeploy. The source baseline is
+`58e3adcc229bebaed78ca5a456ede14ce358493d`. Repeat the health and correlation
+checks after restoration; the prior deployment will again lack these messages.
 
 Reference pattern inspected: BPL `frontend/api/_proxy.js`, its exact
 `lines/current.js` entry, browser client, proxy tests and Vite/Vercel configuration.
