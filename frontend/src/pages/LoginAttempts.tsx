@@ -28,7 +28,7 @@ const LoginAttempts: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiClient.getLoginAttempts(200, 0);
+      const data = await apiClient.getLoginAttempts(200);
       setAttempts(data);
     } catch (err: any) {
       setError(getApiErrorMessage(err, 'Failed to fetch login attempts'));
