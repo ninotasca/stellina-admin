@@ -8,10 +8,14 @@ import { resolveProxyLogLevel, classifyEnvironment } from '../server/stellinaPro
 
 // Initialize the test Function once under an explicit production configuration.
 const originalLevel = process.env.LOG_LEVEL
+const originalEnvironment = process.env.ENVIRONMENT_NAME
+process.env.ENVIRONMENT_NAME = 'production'
 process.env.LOG_LEVEL = 'INFO'
 const { proxyStellinaRequest } = await import('../server/stellinaProxy.js?production-instance')
 if (originalLevel === undefined) delete process.env.LOG_LEVEL
 else process.env.LOG_LEVEL = originalLevel
+if (originalEnvironment === undefined) delete process.env.ENVIRONMENT_NAME
+else process.env.ENVIRONMENT_NAME = originalEnvironment
 
 const route = '/api/v1/stellina/commissions/projections'
 let previousEnvironment
@@ -88,6 +92,8 @@ for (const [outcome, status, event, level, errorType] of [
       assert.equal(entry.service, 'stellina-web')
       assert.equal(entry.component, 'api-proxy')
       assert.equal(entry.request_id, 'message-fixture')
+      assert.equal(entry.correlation_id, 'message-fixture')
+      assert.equal(entry.environment, 'production')
       assert.equal(entry.route, route)
       assert.equal(entry.method, 'GET')
       assert.ok(!Number.isNaN(Date.parse(entry.timestamp)))
@@ -284,19 +290,77 @@ test('five-second completion uses the warning channel', async () => {
   assert.equal(entries[0].duration_ms, 5000)
 })
 
-test('invalid, oversized and missing IDs are replaced; valid IDs survive', async () => {
+test('validated references correlate every event with upstream, response and gateway body', async () => {
   const generated = new Set()
-  for (const supplied of ['', 'bad id', 'a'.repeat(129), 'id,duplicate', '<script>']) {
-    let upstreamId
-    const response = await proxyStellinaRequest(request({ headers: { [idHeader]: supplied } }), route, options({ fetchImpl: async (_, init) => {
-      upstreamId = init.headers.get(idHeader)
-      return Response.json({})
-    } }))
-    assert.match(upstreamId, /^[0-9a-f-]{36}$/)
-    assert.equal(response.headers.get(idHeader), upstreamId)
-    generated.add(upstreamId)
+  for (const supplied of [undefined, '', 'bad id', 'a'.repeat(129), 'id,duplicate', '<script>', 'A'.repeat(128), 'safe._:-123']) {
+    for (const outcome of ['success', 'failure', 'timeout']) {
+      const { entries, logger } = recorder()
+      let upstreamId
+      const response = await proxyStellinaRequest(request({ headers: supplied === undefined ? {} : { [idHeader]: supplied } }), route, {
+        logger, logLevel: 'DEBUG', timeoutMs: 2,
+        fetchImpl: async (_, init) => {
+          upstreamId = init.headers.get(idHeader)
+          if (outcome === 'failure') throw new Error('private failure')
+          if (outcome === 'timeout') {
+            return new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(new Error('private timeout')), { once: true }))
+          }
+          return Response.json({})
+        },
+      })
+      if (supplied && /^[A-Za-z0-9._:-]{1,128}$/.test(supplied)) assert.equal(upstreamId, supplied)
+      else {
+        assert.match(upstreamId, /^[0-9a-f-]{36}$/)
+        assert.ok(!generated.has(upstreamId))
+        generated.add(upstreamId)
+      }
+      assert.equal(response.status, outcome === 'success' ? 200 : outcome === 'failure' ? 502 : 504)
+      assert.equal(response.headers.get(idHeader), upstreamId)
+      if (outcome !== 'success') assert.equal((await response.json()).request_id, upstreamId)
+      assert.equal(entries.length, 2)
+      for (const entry of entries) {
+        assert.equal(entry.correlation_id, upstreamId)
+        assert.equal(entry.request_id, upstreamId)
+      }
+    }
   }
-  assert.equal(generated.size, 5)
+})
+
+test('every event uses the startup-classified environment independently of the log threshold', async () => {
+  const saved = { ...process.env }
+  try {
+    for (const [alias, expected] of [['test', 'development'], ['preview', 'staging'], ['prod', 'production']]) {
+      process.env.ENVIRONMENT_NAME = alias
+      process.env.LOG_LEVEL = 'DEBUG'
+      const artifact = await import(`../server/stellinaProxy.js?envelope-${alias}`)
+      // Warm Functions keep the environment and threshold selected together at startup.
+      process.env.ENVIRONMENT_NAME = 'private-invalid-runtime-value'
+      process.env.LOG_LEVEL = 'ERROR'
+      const { entries, logger } = recorder()
+      for (const outcome of ['success', 'failure', 'timeout']) {
+        await artifact.proxyStellinaRequest(request(), route, {
+          logger, timeoutMs: 2,
+          fetchImpl: async (_, init) => {
+            if (outcome === 'failure') throw new Error('private failure')
+            if (outcome === 'timeout') {
+              return new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(new Error('private timeout')), { once: true }))
+            }
+            return Response.json({})
+          },
+        })
+      }
+      assert.deepEqual(entries.map(entry => entry.event), [
+        'stellina.proxy.started', 'stellina.proxy.completed',
+        'stellina.proxy.started', 'stellina.proxy.failed',
+        'stellina.proxy.started', 'stellina.proxy.timed_out',
+      ])
+      for (const entry of entries) {
+        assert.equal(entry.environment, expected)
+        assert.equal(typeof entry.message, 'string')
+        assert.ok(entry.message.length > 0)
+        assert.equal(entry.correlation_id, entry.request_id)
+      }
+    }
+  } finally { process.env = saved }
 })
 
 test('DEBUG and gateway errors never disclose exceptions, bodies, tokens, cookies, queries or arbitrary headers', async () => {
