@@ -60,7 +60,8 @@ const settle = () => new Promise(resolve => setImmediate(resolve))
 async function probe(mod, page, { status = 401, stage = 'rfp', edit = false, contained = false, throwingSink = false } = {}) {
   const methods = ['debug', 'info', 'warn', 'error', 'log', 'trace', 'dir', 'table']
   const sinks = Object.fromEntries(methods.map(method => [method, console[method]]))
-  const previousStorage = globalThis.localStorage
+  // Preserve the property without invoking Node's experimental storage getter.
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
   const lines = [], requests = []
   const canary = 'synthetic-rfp-private-canary'
   const event = { id: 'event-fixture', meeting_name: 'Meeting', hotels_considered: [] }
@@ -68,7 +69,9 @@ async function probe(mod, page, { status = 401, stage = 'rfp', edit = false, con
   const f = { index: 0, state: [], effects: [], mounted: false, navigation: [],
     params: page === 'RFPForm' ? (edit ? { id: rfp.id } : { eventId: event.id }) : { rfpId: rfp.id }, saving: false }
   globalThis.__rfpFixture = f
-  globalThis.localStorage = { getItem: () => canary }
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true, writable: true, value: { getItem: () => canary },
+  })
   f.adapter = async config => {
     requests.push(config)
     const fails = page === 'RFPForm' ? f.saving :
@@ -130,7 +133,7 @@ async function probe(mod, page, { status = 401, stage = 'rfp', edit = false, con
   } finally {
     Object.assign(console, sinks)
     if (previousStorage === undefined) delete globalThis.localStorage
-    else globalThis.localStorage = previousStorage
+    else Object.defineProperty(globalThis, 'localStorage', previousStorage)
     delete globalThis.__rfpFixture
   }
 }

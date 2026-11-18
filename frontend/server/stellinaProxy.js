@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
+import { writeSync } from 'node:fs'
 
 const UPSTREAM_ORIGIN = 'https://api.unoventi.ai'
 const REQUEST_ID_HEADER = 'x-stellina-request-id'
 const TIMEOUT_MS = 15_000
 const LEVELS = { DEBUG: 10, INFO: 20, WARN: 30, ERROR: 40 }
+const LOG_FAILURE_FIELDS = '"level":"error","service":"stellina-web","component":"api-proxy","event":"stellina.proxy.logging_failed","message":"Stellina proxy diagnostic logging failed."'
 export function classifyEnvironment(values = process.env) {
   const selected = values.ENVIRONMENT_NAME ?? values.RAILWAY_ENVIRONMENT_NAME ?? values.VERCEL_ENV ?? values.NODE_ENV
   if (selected === undefined && (values.VERCEL || values.RAILWAY_SERVICE_ID || values.RAILWAY_DEPLOYMENT_ID)) {
@@ -26,7 +28,8 @@ export function resolveProxyLogLevel(raw, environment = classifyEnvironment()) {
 }
 
 // Reject invalid server configuration while loading the Function, before traffic.
-const minimumLevel = resolveProxyLogLevel(process.env.LOG_LEVEL)
+const environment = classifyEnvironment()
+const minimumLevel = resolveProxyLogLevel(process.env.LOG_LEVEL, environment)
 const METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'])
 const REQUEST_HEADERS = [
   'accept', 'authorization', 'content-type', 'cookie', 'origin',
@@ -47,10 +50,16 @@ function emit(logger, threshold, level, fields) {
   const method = level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info'
   try {
     logger[method](JSON.stringify({
-      timestamp: new Date().toISOString(), level, service: 'stellina-web',
+      timestamp: new Date().toISOString(), level, service: 'stellina-web', environment,
       component: 'api-proxy', ...fields,
     }))
-  } catch { /* A log sink must never break a request. */ }
+  } catch {
+    // Only interpolate an ISO timestamp, the startup enum and the validated opaque ID.
+    // Bypass JSON.stringify and the logger; sync stderr avoids async stream errors.
+    try {
+      writeSync(2, `{"timestamp":"${new Date().toISOString()}","environment":"${environment}","correlation_id":"${fields.correlation_id}",${LOG_FAILURE_FIELDS}}\n`)
+    } catch { /* Fallback construction and writing must never break a request. */ }
+  }
 }
 
 // Server-only helper; routePath comes from a reviewed entry point, never browser input.
@@ -63,7 +72,7 @@ export async function proxyStellinaRequest(request, routePath, options = {}) {
   const threshold = options.logLevel === undefined ? minimumLevel : resolveProxyLogLevel(options.logLevel, 'test')
   const logger = options.logger || console
   const context = {
-    event: 'stellina.proxy.started', request_id: requestId,
+    event: 'stellina.proxy.started', request_id: requestId, correlation_id: requestId,
     method: METHODS.has(request.method) ? request.method : 'OTHER', route: routePath,
   }
   const log = (level, fields) => emit(logger, threshold, level, { ...context, ...fields })

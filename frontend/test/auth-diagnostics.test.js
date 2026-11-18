@@ -118,7 +118,8 @@ async function compiledAuth(raw = 'DEBUG', mode = 'production') {
 let fixtureSequence = 0
 async function probeAuth(code, threshold) {
   const sinks = { debug: console.debug, info: console.info, warn: console.warn, error: console.error }
-  const storage = globalThis.localStorage
+  // Preserve the property without invoking Node's experimental storage getter.
+  const storage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
   const lines = []
   try {
     for (const method of Object.keys(sinks)) console[method] = line => {
@@ -127,7 +128,10 @@ async function probeAuth(code, threshold) {
     }
     async function mount({ policyFails = false, session = 'identity-fixture', rejected = false, cleanup = 'ok', logoutFails = false } = {}) {
       const store = new Map()
-      globalThis.localStorage = { setItem: (k, v) => store.set(k, v), removeItem: k => store.delete(k) }
+      Object.defineProperty(globalThis, 'localStorage', {
+        configurable: true, writable: true,
+        value: { setItem: (k, v) => store.set(k, v), removeItem: k => store.delete(k) },
+      })
       const reports = [], signouts = []
       const user = { id: 'synthetic-user', is_admin: true }
       const h = {
@@ -225,7 +229,7 @@ async function probeAuth(code, threshold) {
   } finally {
     Object.assign(console, sinks)
     if (storage === undefined) delete globalThis.localStorage
-    else globalThis.localStorage = storage
+    else Object.defineProperty(globalThis, 'localStorage', storage)
     delete globalThis.__authDiagnosticFixture
   }
 }

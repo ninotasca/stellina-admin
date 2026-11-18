@@ -163,6 +163,65 @@ NIN-259 application change and rebuild/redeploy. The source baseline is
 `58e3adcc229bebaed78ca5a456ede14ce358493d`. Repeat the health and correlation
 checks after restoration; the prior deployment will again lack these messages.
 
+## Guarded proxy logging fallback (NIN-261)
+
+If diagnostic serialization or the primary logger throws, the server helper
+attempts one synchronous write to standard error (file descriptor 2). The
+single-line JSON signal has level `error`, event `stellina.proxy.logging_failed`,
+service `stellina-web`, component `api-proxy` and message
+`Stellina proxy diagnostic logging failed.` Its LOG-FMT-002 envelope includes
+a fresh UTC ISO `timestamp`, the startup-classified `environment` enum
+(`development`, `staging` or `production`), and `correlation_id` matching the
+validated/generated `x-stellina-request-id`. Primary events include the same
+environment and correlation fields, retaining `request_id` for compatibility.
+The fallback interpolates only those bounded values into fixed JSON; it bypasses
+`JSON.stringify` and the primary logger. No rejected payload, URL, body, headers
+or exception text is included. Fallback construction and stderr writing share
+an independent guard: if either fails, the business response is preserved
+without retry or recursive logging. Filtered events do not trigger a fallback.
+Synchronous output avoids asynchronous stream error events.
+
+Run `node --test test/proxy-logging.test.js` from `frontend/` for forced
+serialization, primary logger and stderr failures across success, upstream 503,
+connection failure and timeout responses, plus fallback construction failure,
+validated/generated IDs, complete-envelope assertions, real stderr capture in
+all three environments and checks that healthy/filtered logs do not emit the
+fallback.
+
+Attempt 2 verification used the installed Node 26.11.1 runtime. The two reported
+auth/RFP diagnostic test failures also reproduced against the pinned source
+baseline `f807857176e3abca59a42fd681a6d821be696d73` under that same runtime.
+Reading Node's native `localStorage` getter scheduled an experimental warning
+that reached the tests' console captures. The application-owned fixtures now
+save/restore the property descriptor and define their storage stubs without
+invoking that getter; diagnostic count, JSON and privacy assertions remain
+intact. This is a test-isolation correction, with no application auth/RFP change.
+
+Bounded local verification: 69 selected tests passed with:
+
+```sh
+node --import ./test/register.mjs --test --test-skip-pattern='localhost:|actual Vite configuration' test/proxy-logging.test.js test/proxy.test.js test/auth-diagnostics.test.js test/rfp-diagnostics.test.js
+```
+
+The two excluded existing checks encountered sandbox `EPERM` for a loopback
+listener and Vite's temporary configuration file in the shared, read-only
+`node_modules` directory. They require a Harness rerun in its permitted test
+environment. The full deterministic suite and production build remain Harness
+checks; no dependencies were installed or hosted checks performed here.
+
+The Stellina application owner should release to an authenticated Preview first,
+limited to the two existing Function routes. Compare the health status, body and
+request ID with the prior deployment. In an isolated test deployment, force a
+primary logging failure and verify `stellina.proxy.logging_failed` in Vercel
+Runtime Logs alongside unchanged health and safe gateway responses. Record the
+deployment ID, health results and sanitized signal before promotion; stop for a
+missing fallback or changed responses. Hosted evidence remains pending until
+these release checks run. Restore the intended logging configuration afterward.
+
+Rollback: restore the prior known-good Vercel deployment, or revert the NIN-261
+application patch and rebuild/redeploy. Repeat health, response and request ID
+checks after restoration. The prior release will again lack this fallback signal.
+
 Reference pattern inspected: BPL `frontend/api/_proxy.js`, its exact
 `lines/current.js` entry, browser client, proxy tests and Vite/Vercel configuration.
 Adaptations include fixed route labels, cookie/cache forwarding, buffering/body
