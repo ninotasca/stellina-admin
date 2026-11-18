@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { build } from 'vite'
@@ -17,7 +17,7 @@ function directConsoleCalls(text) {
   const found = []
   const owners = new Set(['console', 'globalThis.console', 'window.console', "globalThis['console']", "window['console']"])
   const methods = new Map()
-  const methodNames = ['debug', 'info', 'warn', 'error', 'log']
+  const methodNames = ['debug', 'info', 'warn', 'error', 'log', 'trace', 'dir', 'dirxml', 'table', 'assert']
   function methodOf(node) {
     if (ts.isIdentifier(node)) return methods.get(node.text)
     if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
@@ -55,7 +55,7 @@ function directConsoleCalls(text) {
 test('AuthContext uses the browser adapter and direct-console mutations are detected', () => {
   assert.deepEqual(directConsoleCalls(source), [])
   assert.match(source, /import \{ clientLog \} from '\.\.\/lib\/diagnostic-core'/)
-  for (const method of ['debug', 'info', 'warn', 'error', 'log']) {
+  for (const method of ['debug', 'info', 'warn', 'error', 'log', 'trace', 'dir', 'dirxml', 'table', 'assert']) {
     for (const call of [
       `console.${method}('fixture')`, `console['${method}']('fixture')`, `globalThis.console.${method}('fixture')`,
       `const logger = console; logger.${method}('fixture')`,
@@ -69,6 +69,16 @@ test('AuthContext uses the browser adapter and direct-console mutations are dete
   assert.deepEqual(directConsoleCalls("clientLog('error', 'unoventi.auth.policy_failed')"), [])
   const adapter = readFileSync(new URL('../src/lib/diagnostic-core.ts', import.meta.url), 'utf8')
   assert.match(adapter, /console\[level\]\(output\)/)
+})
+
+test('all browser source, including page failure handlers, routes console output through the adapter', () => {
+  const sourceRoot = new URL('../src/', import.meta.url)
+  const files = readdirSync(sourceRoot, { recursive: true }).filter(path => /\.[cm]?[jt]sx?$/.test(path))
+  assert.ok(files.some(path => path.endsWith('pages/RFPForm.tsx')))
+  for (const path of files) {
+    if (path === 'lib/diagnostic-core.ts') continue
+    assert.deepEqual(directConsoleCalls(readFileSync(new URL(path, sourceRoot), 'utf8')), [], path)
+  }
 })
 
 // A deterministic hook harness runs the real provider's effects and callbacks

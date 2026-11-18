@@ -40,6 +40,18 @@ function recorder() {
 }
 const options = overrides => ({ logger: recorder().logger, ...overrides })
 
+const requiredProxyFields = ['timestamp', 'level', 'message', 'service', 'environment', 'component', 'event', 'correlation_id']
+function assertProxyEnvelope(entry) {
+  for (const field of requiredProxyFields) {
+    assert.equal(typeof entry[field], 'string', field)
+    assert.ok(entry[field].trim().length > 0, field)
+  }
+  assert.ok(Number.isFinite(Date.parse(entry.timestamp)), 'timestamp')
+  assert.ok(['debug', 'info', 'warn', 'error'].includes(entry.level), 'level')
+  assert.ok(['development', 'staging', 'production'].includes(entry.environment), 'environment')
+  assert.match(entry.correlation_id, /^[A-Za-z0-9._:-]{1,128}$/, 'correlation_id')
+}
+
 for (const [outcome, status, event, level, errorType] of [
   ['success', 200, 'completed', 'info'],
   ['client error', 404, 'completed', 'warn'],
@@ -49,7 +61,7 @@ for (const [outcome, status, event, level, errorType] of [
   ['cancellation', 502, 'failed', 'error', 'RequestCancelled'],
   ['timeout', 504, 'timed_out', 'error', 'UpstreamTimeout'],
 ]) {
-  test(`${outcome} emits single-line JSON with fixed readable messages and preserves proxy context`, async () => {
+  test(`${outcome} emits a complete single-line envelope, rejects required-field omissions and preserves proxy context`, async () => {
     const { entries, lines, logger } = recorder()
     const controller = new AbortController()
     if (outcome === 'cancellation') controller.abort()
@@ -88,6 +100,16 @@ for (const [outcome, status, event, level, errorType] of [
       assert.equal(typeof line, 'string')
       assert.doesNotMatch(line, /[\r\n]/)
       const entry = JSON.parse(line)
+      assertProxyEnvelope(entry)
+      // Each captured start/outcome is a compliant fixture; prove the contract
+      // rejects omission of every required field, independently of the emitter.
+      for (const field of requiredProxyFields) {
+        const omitted = { ...entry }
+        delete omitted[field]
+        assert.throws(() => assertProxyEnvelope(omitted), { message: new RegExp(field) })
+      }
+      assert.equal(entry.environment, 'production')
+      assert.equal(entry.correlation_id, response.headers.get(idHeader))
       assert.equal(entry.message, expectedMessages[entry.event])
       assert.equal(entry.service, 'stellina-web')
       assert.equal(entry.component, 'api-proxy')
@@ -124,6 +146,27 @@ test('environment classification, precedence and startup rejection', async () =>
     process.env.ENVIRONMENT_NAME = 'private-invalid-fixture'
     process.env.LOG_LEVEL = 'ERROR'
     await assert.rejects(import('../server/stellinaProxy.js?invalid-environment'), /Environment must be/)
+  } finally { process.env = saved }
+})
+
+test('emitted envelopes retain the initialized environment in every deployment mode', async () => {
+  const saved = { ...process.env }
+  try {
+    for (const [mode, expected] of [['development', 'development'], ['preview', 'staging'], ['production', 'production']]) {
+      Object.assign(process.env, { ENVIRONMENT_NAME: mode, LOG_LEVEL: 'DEBUG' })
+      const artifact = await import(`../server/stellinaProxy.js?envelope-${mode}`)
+      process.env.ENVIRONMENT_NAME = 'production'
+      const { entries, logger } = recorder()
+      const response = await artifact.proxyStellinaRequest(request({ headers: { [idHeader]: 'environment-fixture' } }), route, {
+        logger, fetchImpl: async () => Response.json({}),
+      })
+      assert.equal(entries.length, 2)
+      for (const entry of entries) {
+        assertProxyEnvelope(entry)
+        assert.equal(entry.environment, expected)
+        assert.equal(entry.correlation_id, response.headers.get(idHeader))
+      }
+    }
   } finally { process.env = saved }
 })
 
@@ -318,6 +361,7 @@ test('validated references correlate every event with upstream, response and gat
       if (outcome !== 'success') assert.equal((await response.json()).request_id, upstreamId)
       assert.equal(entries.length, 2)
       for (const entry of entries) {
+        assertProxyEnvelope(entry)
         assert.equal(entry.correlation_id, upstreamId)
         assert.equal(entry.request_id, upstreamId)
       }
