@@ -177,10 +177,10 @@ class ApiClient {
     }
   }
 
-  // Get login attempts (admin only)
-  async getLoginAttempts(limit: number = 100, offset: number = 0): Promise<LoginAttempt[]> {
-    const response = await this.coreClient.get<LoginAttempt[]>('/auth/login-attempts', {
-      params: { limit, offset },
+  // Get history for the authorized Stellina application
+  async getLoginAttempts(limit: number = 100, cursor?: string): Promise<LoginAttempt[]> {
+    const response = await this.stellinaClient.get<LoginAttempt[]>('/auth/login-attempts', {
+      params: { limit, ...(cursor ? { cursor } : {}) },
     });
     return response.data;
   }

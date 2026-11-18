@@ -34,7 +34,7 @@ const SAFE_FIELDS = new Set([
 ]);
 
 type SafeValidation = { loc: (string | number)[]; type: string; msg: string };
-type ErrorBody = { detail?: unknown; request_id?: unknown };
+type ErrorBody = { detail?: unknown; request_id?: unknown; correlation_id?: unknown };
 
 function validId(value: unknown): string | null {
   return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value) ? value : null;
@@ -63,7 +63,8 @@ export function normalizeApiError(error: unknown): never {
   if (axios.isCancel(error) || !axios.isAxiosError(error)) throw error;
   const response = error.response;
   const body = jsonBody(response?.data);
-  const requestId = validId(response?.headers[REQUEST_ID_HEADER]) || validId(body?.request_id);
+  const requestId = validId(response?.headers['x-correlation-id']) || validId(response?.headers[REQUEST_ID_HEADER])
+    || validId(body?.correlation_id) || validId(body?.request_id);
   const status = response?.status;
   let detail = 'Stellina could not reach the data service. Please try again.';
   const validation = status === 422 ? validationDetails(body?.detail) : [];

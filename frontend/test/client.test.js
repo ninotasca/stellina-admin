@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import axios, { AxiosError, CanceledError } from 'axios'
 
 let reply = { status: 200, data: '{}' }
@@ -228,4 +229,49 @@ test('upload validation keeps friendly workbook errors while hiding parser and c
   }
   reply = { status: 413, data: '{"detail":"private-secret"}' }
   assert.match((await failure()).message, /file is too large/)
+})
+
+
+test('history v1 client uses scoped Stellina authority and retains the provider contract', async () => {
+  const fixture = JSON.parse(readFileSync(new URL('./contracts/login-history-v1.json', import.meta.url)))
+  store.set('access_token', 'exchanged-stellina-session')
+  reply.data = JSON.stringify(fixture.scoped_response)
+  const rows = await apiClient.getLoginAttempts(2)
+  assert.deepEqual(rows, fixture.scoped_response)
+  // The provider test checks this same versioned schema against its generated model.
+  const schema = fixture.response_schema.$defs.LoginAttemptResponse
+  for (const row of rows) {
+    assert.deepEqual(Object.keys(row).sort(), [...schema.required].sort())
+    for (const [key, property] of Object.entries(schema.properties)) {
+      const variants = property.anyOf || [property]
+      assert.ok(variants.some(variant => variant.type === (row[key] === null ? 'null' : typeof row[key])))
+    }
+  }
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].baseURL, '/api/v1/stellina')
+  assert.equal(calls[0].url, '/auth/login-attempts')
+  assert.equal(calls[0].headers.Authorization, 'Bearer exchanged-stellina-session')
+  assert.deepEqual(calls[0].params, { limit: 2 })
+  assert.ok(rows.every(row => row.site_id === '00000000-0000-0000-0000-000000000001'))
+  assert.equal(rows.some(row => row.site_id === '00000000-0000-0000-0000-000000000002'), false)
+  calls = []
+  const last = rows.at(-1)
+  const cursor = `${last.timestamp}|${last.id}`
+  await apiClient.getLoginAttempts(2, cursor)
+  assert.deepEqual(calls[0].params, { limit: 2, cursor })
+  for (const status of [403, 422, 503]) {
+    calls = []
+    reply = { status, data: JSON.stringify({code: 'history_unavailable', message: 'Login history unavailable', correlation_id: 'history-ref'}) }
+    await assert.rejects(apiClient.getLoginAttempts(), error => error.response.status === status && error.requestId === 'history-ref')
+    assert.equal(calls.length, 1) // no global fallback or retries
+    assert.equal(calls[0].baseURL, '/api/v1/stellina')
+  }
+})
+
+
+test('canonical history correlation header is bounded and preferred over body references', async () => {
+  for (const [reference, expected] of [['header-history-ref', 'header-history-ref'], ['x'.repeat(129), 'body-history-ref']]) {
+    reply = { status: 503, headers: { 'x-correlation-id': reference }, data: JSON.stringify({correlation_id: 'body-history-ref'}) }
+    await assert.rejects(apiClient.getLoginAttempts(), error => error.requestId === expected)
+  }
 })
