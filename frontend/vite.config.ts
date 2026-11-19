@@ -36,9 +36,12 @@ function buildVersion() {
 export default defineConfig(({ mode, command }) => {
   const environment = resolveBuildEnvironment(mode, process.env, command)
   process.env.NODE_ENV = environment === 'development' ? 'development' : 'production'
-  // Vite may leave this framework-owned marker in hosted build environments.
-  // It is not application configuration and must not enter the strict VITE_ allowlist.
-  delete process.env.VITE_USER_NODE_ENV
+  // Public configuration is pinned in the repository's reviewed environment
+  // profile. Hosted ambient variables must not override application identity,
+  // auth policy, or the strict public allowlist.
+  for (const key of Object.keys(process.env)) {
+    if (key.startsWith('VITE_')) delete process.env[key]
+  }
   const env = loadEnv(environment, process.cwd(), '')
   delete env.VITE_USER_NODE_ENV
   const { manifest, registry } = readPinnedConfiguration()
