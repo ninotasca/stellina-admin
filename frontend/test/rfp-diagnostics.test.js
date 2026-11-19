@@ -25,7 +25,7 @@ async function compile(page, contained = false, unsafe = false) {
         if (id === 'axios') return '\0axios'
         if (id === 'react') return '\0react'
         if (id === 'react-router-dom') return '\0router'
-        if (id === '../auth/credential-store') return '\0credential-store'
+        if (id === '../auth/runtime') return '\0credential-store'
         if (id.endsWith('/RichTextInput')) return '\0richtext'
         if (id === '../commissions/index' || id.endsWith('/features/commissions/index')) return '\0commissions'
         if ((contained || unsafe) && (id.endsWith('/diagnostics') || id.endsWith('/diagnostics.ts'))) return '\0contained'
@@ -47,7 +47,7 @@ async function compile(page, contained = false, unsafe = false) {
         `
         if (id === '\0router') return `export const useParams = () => globalThis.__rfpFixture.params;
           export const useNavigate = () => path => globalThis.__rfpFixture.navigation.push(path);`
-        if (id === '\0credential-store') return `export const credentialSnapshot = () => ({ accessToken: 'synthetic-rfp-private-canary', generation: 1 });`
+        if (id === '\0credential-store') return `export const credentialStore = {snapshot: () => ({ accessToken: 'synthetic-rfp-private-canary', generation: 1 })};`
         if (id === '\0richtext') return 'export default function RichTextInput() {}'
         if (id === '\0commissions') return `export { commissionApi } from ${JSON.stringify(`${root}/src/features/commissions/api.ts`)};`
         // Exercise containment and an unsafe raw-error regression through real page handlers.

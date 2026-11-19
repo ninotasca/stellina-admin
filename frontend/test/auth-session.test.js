@@ -1,8 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { decodeBrowserSession } from '../src/platform/auth/api.ts'
-import { clearCredential, credentialSnapshot, installCredential } from '../src/platform/auth/credential-store.ts'
+import { decodeBrowserSession as decode } from '@ninotasca/web-platform/auth'
+import { credentialStore } from '../src/platform/auth/runtime.ts'
+const decodeBrowserSession = value => decode(value, 'stellina')
+const clearCredential = generation => credentialStore.clear(generation)
+const credentialSnapshot = () => credentialStore.snapshot()
+const installCredential = (accessToken, csrfToken, expiresAt) => credentialStore.install({ access_token: accessToken, csrf_token: csrfToken, expires_at: expiresAt })
 
 function session(overrides = {}) {
   const now = Date.now()

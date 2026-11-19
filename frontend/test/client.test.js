@@ -18,8 +18,11 @@ axios.defaults.adapter = async config => {
   return response
 }
 const { createApiClient, getApiErrorMessage, publicApiClient, coreProtectedApiClient } = await import('../src/platform/http/index.ts')
-const { exchangeBrowserSession, logoutBrowserSession } = await import('../src/platform/auth/api.ts')
-const { clearCredential, credentialSnapshot, installCredential } = await import('../src/platform/auth/credential-store.ts')
+const { authBackend } = await import('../src/platform/auth/api.ts')
+const { credentialStore } = await import('../src/platform/auth/runtime.ts')
+const clearCredential = generation => credentialStore.clear(generation)
+const credentialSnapshot = () => credentialStore.snapshot()
+const installCredential = (accessToken, csrfToken, expiresAt) => credentialStore.install({ access_token: accessToken, csrf_token: csrfToken, expires_at: expiresAt })
 const { administrationApi } = await import('../src/features/administration/api.ts')
 const { commissionApi } = await import('../src/features/commissions/api.ts')
 const { cventTrackerApi } = await import('../src/features/cvent/api.ts')
@@ -219,15 +222,18 @@ test('provider proof is used only for Core browser-session exchange and is never
     expires_at: new Date(now + 120000).toISOString(), expires_in_seconds: 120, csrf_token: 'c'.repeat(32),
     authority: { site_key: 'stellina', actor: { id: 'actor', email: 'admin@stellina.example', full_name: 'Admin', avatar_url: null, provider: 'google' }, roles: ['admin'], permissions: [], session_started_at: new Date(now - 1000).toISOString(), absolute_expires_at: new Date(now + 3600000).toISOString(), idle_expires_at: new Date(now + 1800000).toISOString() },
   }
-  reply = { status: 200, data: JSON.stringify(response) }
-  assert.deepEqual(await exchangeBrowserSession('raw-provider-proof'), response)
-  assert.equal(calls[0].url, '/api/v1/core/auth/browser-session/stellina/exchange')
-  assert.equal(calls[0].headers.Authorization, 'Bearer raw-provider-proof')
-  assert.equal(calls[0].withCredentials, true)
-  assert.equal(credentialSnapshot().accessToken, null)
-  await logoutBrowserSession('c'.repeat(32))
-  assert.equal(calls.at(-1).url, '/api/v1/core/auth/browser-session/stellina')
-  assert.equal(calls.at(-1).headers['X-CSRF-Token'], 'c'.repeat(32))
+  const originalFetch = globalThis.fetch, requests = []
+  globalThis.fetch = async (url, init) => { requests.push({ url, init }); return new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } }) }
+  try {
+    assert.deepEqual(await authBackend.exchange('raw-provider-proof'), response)
+    assert.equal(requests[0].url, '/api/v1/core/auth/browser-session/stellina/exchange')
+    assert.equal(new Headers(requests[0].init.headers).get('Authorization'), 'Bearer raw-provider-proof')
+    assert.equal(requests[0].init.credentials, 'same-origin')
+    assert.equal(credentialSnapshot().accessToken, null)
+    await authBackend.logout('c'.repeat(32))
+    assert.equal(requests.at(-1).url, '/api/v1/core/auth/browser-session/stellina')
+    assert.equal(new Headers(requests.at(-1).init.headers).get('X-CSRF-Token'), 'c'.repeat(32))
+  } finally { globalThis.fetch = originalFetch }
 })
 
 test('protected 401 emits its credential generation without clearing a newer session or redirecting', async () => {

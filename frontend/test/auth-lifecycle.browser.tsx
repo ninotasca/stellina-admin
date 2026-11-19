@@ -1,20 +1,24 @@
-import { createElement, useLayoutEffect } from 'react'
+import { createElement, StrictMode, useLayoutEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
 import { AuthProvider } from '../src/platform/auth/AuthProvider'
 import { useAuth, type AuthContextValue } from '../src/platform/auth/auth-context'
 import { ProtectedRoute } from '../src/features/authentication'
-import { clearCredential, credentialSnapshot, installCredential } from '../src/platform/auth/credential-store'
+import { credentialStore } from '../src/platform/auth/runtime'
+import { PlatformError } from '@ninotasca/web-platform/errors'
 
 const policy = { site_key: 'stellina', site_uuid: null, enabled: true, providers: ['google'], registration: 'closed', password_reset: false, magic_login: false, session_max_age_minutes: 720, session_inactivity_minutes: 180, session_resume_after_minutes: 120 }
 type Failure = Error & { status: number }
-const failure = (status: number, message: string) => Object.assign(new Error(message), { status }) as Failure
+const failure = (status: number, message: string) => new PlatformError(message, { status }) as Failure
+const clearCredential = () => credentialStore.clear()
+const credentialSnapshot = () => credentialStore.snapshot()
+const installCredential = (accessToken: string, csrfToken: string, expiresAt: string) => credentialStore.install({ access_token: accessToken.padEnd(32, 'x'), csrf_token: csrfToken.padEnd(32, 'x'), expires_at: expiresAt } as Parameters<typeof credentialStore.install>[0])
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 async function settle() { for (let i = 0; i < 14; i++) await tick() }
 function check(value: unknown, message: string): asserts value { if (!value) throw new Error(message) }
 function session(label = 'core-token') {
-  return { access_token: label, token_type: 'bearer', issued_at: '2026-11-18T20:00:00Z', expires_at: '2099-11-18T21:00:00Z', expires_in_seconds: 120, csrf_token: `csrf-${label}`,
+  return { access_token: label.padEnd(32, 'x'), token_type: 'bearer', issued_at: '2026-11-18T20:00:00Z', expires_at: '2099-11-18T21:00:00Z', expires_in_seconds: 120, csrf_token: `csrf-${label}`.padEnd(32, 'x'),
     authority: { site_key: 'stellina', actor: { id: 'operator', email: 'operator@stellina.example', full_name: 'Operator', avatar_url: null, provider: 'google' }, roles: ['admin'], permissions: ['stellina:admin'], session_started_at: '2026-11-18T20:00:00Z', absolute_expires_at: '2099-11-18T22:00:00Z', idle_expires_at: '2099-11-18T21:30:00Z' } }
 }
 function fixture() {
@@ -25,7 +29,7 @@ function fixture() {
     async logout() { f.logoutCount++ }, async magicLogin() { return { access_token: 'magic' } } }
   return f
 }
-class FakeBroadcastChannel { onmessage: ((event: MessageEvent) => void) | null = null; postMessage() {}; close() {} }
+class FakeBroadcastChannel { private listener: ((event: MessageEvent) => void) | null = null; postMessage() {}; close() {}; addEventListener(_name: string, listener: (event: MessageEvent) => void) { this.listener = listener } }
 async function mount(f: ReturnType<typeof fixture>) {
   Object.assign(window, { __authHarness: f, BroadcastChannel: FakeBroadcastChannel })
   const host = document.getElementById('root')!, root = createRoot(host)
@@ -35,7 +39,7 @@ async function mount(f: ReturnType<typeof fixture>) {
     useLayoutEffect(() => { auth = value; navigate = nav }, [nav, value])
     return <Routes><Route path="/login" element={<div id="login">Login</div>} /><Route path="*" element={<ProtectedRoute requireAdmin><div id="protected">Protected</div></ProtectedRoute>} /></Routes>
   }
-  flushSync(() => root.render(createElement(MemoryRouter, { initialEntries: ['/dashboard'] }, <AuthProvider><Probe /></AuthProvider>)))
+  flushSync(() => root.render(<StrictMode>{createElement(MemoryRouter, { initialEntries: ['/dashboard'] }, <AuthProvider><Probe /></AuthProvider>)}</StrictMode>))
   await settle()
   return { get auth() { return auth }, go(path: string) { flushSync(() => navigate(path)) }, close() { flushSync(() => root.unmount()) } }
 }
@@ -53,7 +57,7 @@ async function run() {
   check(callback.auth.status === 'anonymous', 'missing cookie was not anonymous')
   callbackFixture.providerCallback?.('SIGNED_IN', { access_token: 'raw-provider-secret' }); await settle()
   check(callbackFixture.exchangeCount === 1 && callback.auth.status === 'authenticated', 'provider session not exchanged')
-  check(credentialSnapshot().accessToken === 'exchanged-token', 'Core token not installed in memory')
+  check(credentialSnapshot().accessToken === 'exchanged-token'.padEnd(32, 'x'), 'Core token not installed in memory')
   callback.close()
 
   clearCredential(); const outageFixture = fixture(); outageFixture.restoreError = failure(503, 'offline')
@@ -72,7 +76,7 @@ async function run() {
   const stale = credentialSnapshot().generation
   installCredential('newer-token', 'newer-csrf', '2099-01-01T00:00:00Z')
   window.dispatchEvent(new CustomEvent('unoventi:auth-rejected', { detail: { generation: stale } })); await settle()
-  check(generationFixture.refreshCount === 0 && credentialSnapshot().accessToken === 'newer-token', 'stale 401 invalidated newer session')
+  check(generationFixture.refreshCount === 0 && credentialSnapshot().accessToken === 'newer-token'.padEnd(32, 'x'), 'stale 401 invalidated newer session')
   generationFixture.refreshError = failure(401, 'expired')
   window.dispatchEvent(new CustomEvent('unoventi:auth-rejected', { detail: { generation: credentialSnapshot().generation } })); await settle()
   check(generationFixture.refreshCount === 1 && generation.auth.status === 'anonymous' && credentialSnapshot().accessToken === null, 'current 401 did not terminate once')

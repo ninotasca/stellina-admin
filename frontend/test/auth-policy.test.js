@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parseAuthPolicy } from '../src/platform/auth/policy.ts'
+import { decodeAuthPolicy as parseAuthPolicy } from '@ninotasca/web-platform/auth'
 import { validPolicy } from './auth-fixtures.js'
 
 test('Stellina closed-site policy is copied and malformed or foreign policy fails closed', () => {

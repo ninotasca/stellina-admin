@@ -1,6 +1,7 @@
 import axios, { AxiosError, type AxiosInstance, type AxiosResponse, type CreateAxiosDefaults } from 'axios';
+import { createPublicHttpClient } from '@ninotasca/web-platform/http';
 import { publicConfig } from '../config/index';
-import { credentialSnapshot } from '../auth/credential-store';
+import { credentialStore } from '../auth/runtime';
 
 // Browser URLs are always same-origin, including public and shared-auth requests.
 export const STELLINA_API_URL = `${publicConfig.apiBaseUrl}/${publicConfig.manifest.api.productNamespace}`;
@@ -142,6 +143,13 @@ function browserVisitId(): string {
   } catch { return crypto.randomUUID(); }
 }
 
+// Shared public transport is used by Core authentication. Product endpoints keep
+// their Axios adapter for binary uploads/downloads and response-shape compatibility.
+export const platformPublicClient = createPublicHttpClient({
+  baseUrl: '', siteId: publicConfig.manifest.auth.siteKey, getVisitId: browserVisitId,
+  fetch: (input, init) => globalThis.fetch(input, init),
+});
+
 // Public requests receive only bounded routing/correlation metadata. They never
 // read credentials and never install authentication rejection behavior.
 export const publicApiClient = createApiClient();
@@ -155,7 +163,7 @@ publicApiClient.interceptors.request.use((config) => {
 export function createProtectedApiClient(baseURL: typeof STELLINA_API_URL | typeof CORE_API_URL): AxiosInstance {
   const client = createApiClient({ baseURL, headers: { 'Content-Type': 'application/json' } });
   client.interceptors.request.use((config) => {
-    const credential = credentialSnapshot();
+    const credential = credentialStore.snapshot();
     const token = credential.accessToken;
     Object.assign(config, { credentialGeneration: credential.generation });
     config.headers.set('X-Unoventi-Site-Id', publicConfig.manifest.auth.siteKey);

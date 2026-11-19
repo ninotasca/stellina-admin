@@ -17,8 +17,8 @@ test('each product domain owns a typed cancellable resource without transport im
 })
 
 test('shared state and UI primitives contain no Stellina feature rules', () => {
-  const state = source('platform/state/useRemoteResource.ts')
-  const view = source('platform/ui/ViewState.tsx')
+  const state = readFileSync(new URL('../node_modules/@ninotasca/web-platform/dist/state/index.js', import.meta.url), 'utf8')
+  const view = readFileSync(new URL('../node_modules/@ninotasca/web-platform/dist/ui/index.d.ts', import.meta.url), 'utf8')
   assert.match(state, /AbortController/)
   assert.match(state, /invalidate/)
   assert.match(view, /loading.*empty.*unauthenticated.*forbidden.*unavailable.*validation.*conflict.*unexpected/s)

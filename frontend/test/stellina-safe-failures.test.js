@@ -25,8 +25,9 @@ axios.defaults.adapter = async config => {
 }
 const { cventTrackerApi } = await import('../src/features/cvent/api.ts')
 const { createApiClient, getApiErrorMessage } = await import('../src/platform/http/index.ts')
-const { credentialSnapshot, installCredential } = await import('../src/platform/auth/credential-store.ts')
-installCredential('synthetic-session', 'c'.repeat(32), '2099-01-01T00:00:00.000Z')
+const { credentialStore } = await import('../src/platform/auth/runtime.ts')
+const credentialSnapshot = () => credentialStore.snapshot()
+credentialStore.install({ access_token: 'synthetic-session', csrf_token: 'c'.repeat(32), expires_at: '2099-01-01T00:00:00.000Z' })
 const safeMessage = 'The Stellina data service is unavailable. Please try again.'
 
 test('consumer uses the same versioned schema as the API', () => {

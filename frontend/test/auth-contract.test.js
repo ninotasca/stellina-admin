@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseAuthPolicy } from '../src/platform/auth/policy.ts'
+import { decodeAuthPolicy as parseAuthPolicy } from '@ninotasca/web-platform/auth'
 import { validPolicy } from './auth-fixtures.js'
 
 const contract = JSON.parse(readFileSync(new URL('./contracts/auth-policy.json', import.meta.url), 'utf8'))

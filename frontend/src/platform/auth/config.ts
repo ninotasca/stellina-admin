@@ -1,4 +1,5 @@
 import { publicConfig } from '../config/index'
+import { safeReturnPath } from '@ninotasca/web-platform/auth'
 
 export const authConfig = Object.freeze({
   siteId: publicConfig.manifest.auth.siteKey,
@@ -9,6 +10,5 @@ export const authConfig = Object.freeze({
 })
 
 export function safeReturnTo(value: string | null | undefined): string {
-  if (!value || !value.startsWith('/') || value.startsWith('//')) return authConfig.postLoginPath
-  return value
+  return safeReturnPath(value, authConfig.postLoginPath)
 }

@@ -1,6 +1,7 @@
 import { createClient, type Session } from '@supabase/supabase-js'
 import { publicConfig } from '../config/index'
-import { credentialSnapshot } from './credential-store'
+import { credentialStore } from './runtime'
+import type { ProviderProofAdapter } from '@ninotasca/web-platform/auth'
 
 const supabaseUrl = publicConfig.supabaseUrl
 const publishableKey = publicConfig.supabasePublishableKey
@@ -27,10 +28,19 @@ export async function googleProviderStatus(): Promise<GoogleProviderStatus> {
     return { available: false, code: 'settings_unavailable', technicalDetail: error instanceof Error ? error.message : 'Authentication settings could not be reached.' }
   }
 }
-export async function accessToken(): Promise<string | null> { return credentialSnapshot().accessToken }
+export async function accessToken(): Promise<string | null> { return credentialStore.snapshot().accessToken }
 export function authVisitId(): string {
   const existing = sessionStorage.getItem(VISIT_ID_KEY)
   if (existing) return existing
   const next = crypto.randomUUID(); sessionStorage.setItem(VISIT_ID_KEY, next); return next
 }
 export function sessionToken(session: Session | null): string | null { return session?.access_token ?? null }
+export const providerProofAdapter: ProviderProofAdapter = {
+  subscribeProof(listener) {
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'PASSWORD_RECOVERY') && session?.access_token) listener(session.access_token)
+    })
+    return () => data.subscription.unsubscribe()
+  },
+  async clearLocal() { await supabase.auth.signOut({ scope: 'local' }) },
+}

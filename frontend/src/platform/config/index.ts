@@ -1,23 +1,13 @@
-export type BuildEnvironment = 'development' | 'staging' | 'production'
-export type ClientLogLevel = 'debug' | 'info' | 'warn' | 'error'
+import type { ApplicationDefinition, BuildEnvironment, ClientLogLevel, PublicConfig as PlatformPublicConfig } from '@ninotasca/web-platform/config'
+export type { BuildEnvironment, ClientLogLevel }
 export type CoreCapability = 'auth' | 'platform-administration'
-export interface ApplicationManifest {
-  readonly schemaVersion: 1
-  readonly applicationId: string
-  readonly api: Readonly<{ owner: 'unoventi-api'; productNamespace: string; coreCapabilities: readonly CoreCapability[] }>
-  readonly auth: Readonly<{ siteKey: string }>
-  readonly branding: Readonly<{ displayName: string; logoPath: string; postLoginPath: string }>
-}
-export interface PublicConfig {
-  readonly manifest: ApplicationManifest
-  readonly environment: BuildEnvironment
-  readonly clientLogLevel: ClientLogLevel
-  readonly apiBaseUrl: string
+export type ApplicationManifest = ApplicationDefinition & Readonly<{
+  api: ApplicationDefinition['api'] & Readonly<{ productNamespace: string; coreCapabilities: readonly CoreCapability[] }>
+}>
+export type PublicConfig = Omit<PlatformPublicConfig<Readonly<{
+  showBuildInfo: boolean; enableMagicLoginUi: boolean; includeTestBookings: boolean
+}>>, 'manifest'> & Readonly<{
+  manifest: ApplicationManifest
   readonly siteId: string
-  readonly supabaseUrl: string
-  readonly supabasePublishableKey: string
-  readonly switches: Readonly<{ showBuildInfo: boolean; enableMagicLoginUi: boolean; includeTestBookings: boolean }>
-  readonly registryRevision: string
-  readonly buildVersion: string
-}
+}>
 export const publicConfig: PublicConfig = __STELLINA_PUBLIC_CONFIG__
