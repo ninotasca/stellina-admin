@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-const entry = fileURLToPath(new URL('../src/contexts/AuthContext.tsx', import.meta.url))
+const entry = fileURLToPath(new URL('../src/platform/auth/AuthContext.tsx', import.meta.url))
 const source = readFileSync(entry, 'utf8')
 
 // Focused source enforcement includes bracket access; mutation fixtures prove detection.
@@ -54,7 +54,7 @@ function directConsoleCalls(text) {
 
 test('AuthContext uses the browser adapter and direct-console mutations are detected', () => {
   assert.deepEqual(directConsoleCalls(source), [])
-  assert.match(source, /import \{ clientLog \} from '\.\.\/lib\/diagnostic-core'/)
+  assert.match(source, /import \{ clientLog \} from '\.\.\/diagnostics\/index'/)
   for (const method of ['debug', 'info', 'warn', 'error', 'log', 'trace', 'dir', 'dirxml', 'table', 'assert']) {
     for (const call of [
       `console.${method}('fixture')`, `console['${method}']('fixture')`, `globalThis.console.${method}('fixture')`,
@@ -67,16 +67,16 @@ test('AuthContext uses the browser adapter and direct-console mutations are dete
     }
   }
   assert.deepEqual(directConsoleCalls("clientLog('error', 'unoventi.auth.policy_failed')"), [])
-  const adapter = readFileSync(new URL('../src/lib/diagnostic-core.ts', import.meta.url), 'utf8')
+  const adapter = readFileSync(new URL('../src/platform/diagnostics/index.ts', import.meta.url), 'utf8')
   assert.match(adapter, /console\[level\]\(output\)/)
 })
 
 test('all browser source, including page failure handlers, routes console output through the adapter', () => {
   const sourceRoot = new URL('../src/', import.meta.url)
   const files = readdirSync(sourceRoot, { recursive: true }).filter(path => /\.[cm]?[jt]sx?$/.test(path))
-  assert.ok(files.some(path => path.endsWith('pages/RFPForm.tsx')))
+  assert.ok(files.some(path => path.endsWith('features/rfp/RFPForm.tsx')))
   for (const path of files) {
-    if (path === 'lib/diagnostic-core.ts') continue
+    if (path === 'platform/diagnostics/index.ts') continue
     assert.deepEqual(directConsoleCalls(readFileSync(new URL(path, sourceRoot), 'utf8')), [], path)
   }
 })
@@ -97,8 +97,8 @@ async function compiledAuth(raw = 'DEBUG', mode = 'production') {
       resolveId(id) {
         if (id === 'react') return '\0test-react'
         if (id === 'axios') return '\0test-axios'
-        if (id === '../services/api') return '\0test-api'
-        if (id === '../services/supabase') return '\0test-supabase'
+        if (id === './api') return '\0test-api'
+        if (id === './supabase') return '\0test-supabase'
       },
       load(id) {
         if (id === '\0test-react') return `
@@ -114,7 +114,7 @@ async function compiledAuth(raw = 'DEBUG', mode = 'production') {
           export default { createElement: (type, props) => ({ type, props }) };
         `
         if (id === '\0test-axios') return 'export default { isAxiosError: error => error?.isAxiosError === true };'
-        if (id === '\0test-api') return 'export const apiClient = globalThis.__authDiagnosticFixture.api;'
+        if (id === '\0test-api') return 'export const authApi = globalThis.__authDiagnosticFixture.api;'
         if (id === '\0test-supabase') return 'export const supabase = globalThis.__authDiagnosticFixture.supabase;'
       },
     }],
@@ -251,7 +251,7 @@ test('policy, restoration, cleanup and logout retain behavior with failing diagn
 test('actual Vite configuration rejects invalid levels before staging or production artifact generation', async t => {
   const previous = process.env.VITE_CLIENT_LOG_LEVEL
   const configFile = fileURLToPath(new URL('../vite.config.ts', import.meta.url))
-  const adapterEntry = fileURLToPath(new URL('../src/lib/diagnostic-core.ts', import.meta.url))
+  const adapterEntry = fileURLToPath(new URL('../src/platform/diagnostics/index.ts', import.meta.url))
   try {
     for (const mode of ['development', 'staging', 'production']) {
       for (const raw of ['', 'WARNING', 'toString', 'private-invalid-canary']) {

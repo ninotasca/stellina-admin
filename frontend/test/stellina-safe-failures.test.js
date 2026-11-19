@@ -18,8 +18,8 @@ axios.defaults.adapter = async config => {
   if (response.status >= 400) throw new AxiosError('Adapter failure', 'ERR_BAD_RESPONSE', config, null, response)
   return response
 }
-const { cventTrackerApi } = await import('../src/services/cventTrackerApi.ts')
-const { createApiClient, getApiErrorMessage } = await import('../src/services/http.ts')
+const { cventTrackerApi } = await import('../src/features/cvent/api.ts')
+const { createApiClient, getApiErrorMessage } = await import('../src/platform/http/index.ts')
 const safeMessage = 'The Stellina data service is unavailable. Please try again.'
 
 test('consumer uses the same versioned schema as the API', () => {

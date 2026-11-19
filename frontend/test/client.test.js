@@ -15,13 +15,14 @@ axios.defaults.adapter = async config => {
   if (reply.status >= 400) throw new AxiosError('Raw adapter failure', 'ERR_BAD_REQUEST', config, null, response)
   return response
 }
-const { createApiClient, getApiErrorMessage, publicApiClient } = await import('../src/services/http.ts')
-const { apiClient } = await import('../src/services/api.ts')
-const { commissionApi } = await import('../src/services/commissionApi.ts')
-const { cventTrackerApi } = await import('../src/services/cventTrackerApi.ts')
-const { rfpApi, publicHotelApi } = await import('../src/services/rfpApi.ts')
-const { siteSelectionApi, publicSiteSelectionApi } = await import('../src/services/siteSelectionApi.ts')
-const { nimbleApi } = await import('../src/services/nimbleApi.ts')
+const { createApiClient, getApiErrorMessage, publicApiClient } = await import('../src/platform/http/index.ts')
+const { authApi } = await import('../src/platform/auth/api.ts')
+const { administrationApi } = await import('../src/features/administration/api.ts')
+const { commissionApi } = await import('../src/features/commissions/api.ts')
+const { cventTrackerApi } = await import('../src/features/cvent/api.ts')
+const { rfpApi, publicHotelApi } = await import('../src/features/rfp/api.ts')
+const { siteSelectionApi, publicSiteSelectionApi } = await import('../src/features/site-selection/api.ts')
+const { nimbleApi } = await import('../src/features/nimble/api.ts')
 const header = 'x-stellina-request-id'
 
 test.beforeEach(() => {
@@ -132,13 +133,13 @@ test('successful empty deletes, HEAD and blob downloads retain their values', as
   assert.equal((await createApiClient().head('/example')).data, '')
   const blob = new Blob(['raw sqlite bytes'])
   reply = { status: 200, data: blob }
-  assert.equal(await apiClient.downloadSqliteBackup(), blob)
+  assert.equal(await administrationApi.downloadSqliteBackup(), blob)
   assert.equal(calls.at(-1).responseType, 'blob')
 })
 
 test('all private clients use same-origin paths and preserve bearer tokens', async () => {
   store.set('access_token', 'private-token')
-  await apiClient.healthCheck()
+  await authApi.healthCheck()
   assert.equal(calls.at(-1).baseURL, '/api/v1/core')
   assert.equal(calls.at(-1).url, '/health/stellina')
   assert.equal(calls.at(-1).headers.Authorization, 'Bearer private-token')
@@ -169,14 +170,14 @@ test('public forms never gain bearer auth or 401 login redirects', async () => {
 test('shared OAuth payload, logout/auth paths and established 401 redirect are preserved', async () => {
   store.set('access_token', 'private-token')
   store.set('user', '{}')
-  await apiClient.googleAuth('code-example', 'https://stellina.example/auth/callback')
+  await authApi.googleAuth('code-example', 'https://stellina.example/auth/callback')
   assert.equal(calls[0].baseURL, '/api/v1/core')
   assert.equal(calls[0].url, '/auth/google')
   assert.deepEqual(JSON.parse(calls[0].data), { code: 'code-example', redirect_uri: 'https://stellina.example/auth/callback', site_id: 'test-site' })
-  await apiClient.logout()
+  await authApi.logout()
   assert.equal(calls.at(-1).url, '/auth/logout')
   reply = { status: 401, data: '<html>private-secret</html>' }
-  await assert.rejects(apiClient.getCurrentUser())
+  await assert.rejects(authApi.getCurrentUser())
   assert.equal(calls.at(-1).baseURL, '/api/v1/core')
   assert.equal(calls.at(-1).url, '/auth/session/stellina')
   assert.equal(globalThis.window.location.href, '/login')
@@ -190,7 +191,7 @@ test('401 on an auth route clears app state without reloading the login page', a
   globalThis.window.location.href = '/login'
   globalThis.window.location.pathname = '/login'
   reply = { status: 401, data: '{}' }
-  await assert.rejects(apiClient.getCurrentUser())
+  await assert.rejects(authApi.getCurrentUser())
   assert.equal(globalThis.window.location.href, '/login')
   assert.equal(store.has('access_token'), false)
   assert.equal(store.has('user'), false)
@@ -236,7 +237,7 @@ test('history v1 client uses scoped Stellina authority and retains the provider 
   const fixture = JSON.parse(readFileSync(new URL('./contracts/login-history-v1.json', import.meta.url)))
   store.set('access_token', 'exchanged-stellina-session')
   reply.data = JSON.stringify(fixture.scoped_response)
-  const rows = await apiClient.getLoginAttempts(2)
+  const rows = await administrationApi.getLoginAttempts(2)
   assert.deepEqual(rows, fixture.scoped_response)
   // The provider test checks this same versioned schema against its generated model.
   const schema = fixture.response_schema.$defs.LoginAttemptResponse
@@ -257,12 +258,12 @@ test('history v1 client uses scoped Stellina authority and retains the provider 
   calls = []
   const last = rows.at(-1)
   const cursor = `${last.timestamp}|${last.id}`
-  await apiClient.getLoginAttempts(2, cursor)
+  await administrationApi.getLoginAttempts(2, cursor)
   assert.deepEqual(calls[0].params, { limit: 2, cursor })
   for (const status of [403, 422, 503]) {
     calls = []
     reply = { status, data: JSON.stringify({code: 'history_unavailable', message: 'Login history unavailable', correlation_id: 'history-ref'}) }
-    await assert.rejects(apiClient.getLoginAttempts(), error => error.response.status === status && error.requestId === 'history-ref')
+    await assert.rejects(administrationApi.getLoginAttempts(), error => error.response.status === status && error.requestId === 'history-ref')
     assert.equal(calls.length, 1) // no global fallback or retries
     assert.equal(calls[0].baseURL, '/api/v1/stellina')
   }
@@ -272,6 +273,6 @@ test('history v1 client uses scoped Stellina authority and retains the provider 
 test('canonical history correlation header is bounded and preferred over body references', async () => {
   for (const [reference, expected] of [['header-history-ref', 'header-history-ref'], ['x'.repeat(129), 'body-history-ref']]) {
     reply = { status: 503, headers: { 'x-correlation-id': reference }, data: JSON.stringify({correlation_id: 'body-history-ref'}) }
-    await assert.rejects(apiClient.getLoginAttempts(), error => error.requestId === expected)
+    await assert.rejects(administrationApi.getLoginAttempts(), error => error.requestId === expected)
   }
 })

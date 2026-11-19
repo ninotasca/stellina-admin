@@ -8,7 +8,7 @@ import { build } from 'vite'
 import { resolveBuildEnvironment } from '../vite.config.ts'
 
 const configFile = fileURLToPath(new URL('../vite.config.ts', import.meta.url))
-const entry = fileURLToPath(new URL('../src/lib/diagnostic-core.ts', import.meta.url))
+const entry = fileURLToPath(new URL('../src/platform/diagnostics/index.ts', import.meta.url))
 
 test('build selectors normalize aliases, skip blanks, and apply precedence before validation', () => {
   for (const [alias, expected] of [

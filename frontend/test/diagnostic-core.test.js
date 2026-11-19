@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { build } from 'vite'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-const entry = fileURLToPath(new URL('../src/lib/diagnostic-core.ts', import.meta.url))
+const entry = fileURLToPath(new URL('../src/platform/diagnostics/index.ts', import.meta.url))
 async function diagnostics(mode, raw) {
   const output = await build({
     root, configFile: false, mode, logLevel: 'silent',

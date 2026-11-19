@@ -6,7 +6,7 @@ import { createServer as createViteServer } from 'vite'
 import health from '../api/v1/stellina/health.js'
 import projections from '../api/v1/stellina/commissions/projections.js'
 import { proxyStellinaRequest } from '../server/stellinaProxy.js'
-import { createApiClient, getApiErrorMessage } from '../src/services/http.ts'
+import { createApiClient, getApiErrorMessage } from '../src/platform/http/index.ts'
 
 const config = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'))
 const selected = ['/api/v1/stellina/health', '/api/v1/stellina/commissions/projections']
