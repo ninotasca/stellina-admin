@@ -35,7 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo(() => ({ status: state.status, context, message: state.failure?.message ?? null, failure: state.failure,
     policy: state.policy as PublicAuthConfig, policyLoading: state.policyLoading, refresh: lifecycle.refreshPolicy, signOut: lifecycle.signOut, magicLogin: lifecycle.magicLogin,
     user, loading: state.status === 'loading' || state.status === 'authorizing', logout: lifecycle.signOut,
-    isAuthenticated: state.status === 'authenticated' || state.status === 'disabled', isAdmin: state.status === 'disabled' || context?.roles.includes('admin') === true,
+    isAuthenticated: state.status === 'authenticated', isAdmin: state.status === 'authenticated' && context?.roles.includes('admin') === true,
     googleLoginEnabled: state.policy.enabled && state.policy.providers.includes('google'), magicLoginEnabled: state.policy.enabled && authConfig.magicLogin && state.policy.magic_login,
   }), [context, lifecycle, state, user])
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

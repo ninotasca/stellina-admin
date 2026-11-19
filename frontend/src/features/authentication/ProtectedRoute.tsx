@@ -26,6 +26,13 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requireAdmin 
     </div></div>;
   }
 
+  if (status === 'disabled') {
+    return <div className="flex items-center justify-center min-h-screen" data-auth-state="disabled"><div className="text-center max-w-md">
+      <h1 className="text-2xl font-semibold text-gray-900 mb-3">Authentication is disabled</h1>
+      <p className="text-gray-600">Stellina is not accepting sign-ins right now. Protected pages are unavailable.</p>
+    </div></div>;
+  }
+
   if (status === 'forbidden') {
     return <div className="flex items-center justify-center min-h-screen"><div className="text-center">
       <h1 className="text-3xl font-bold text-red-600 mb-4">Access Denied</h1>

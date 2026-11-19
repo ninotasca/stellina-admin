@@ -84,7 +84,9 @@ async function run() {
 
   clearCredential(); const disabledFixture = fixture(); disabledFixture.policy = { ...policy, enabled: false, providers: [] }
   const disabled = await mount(disabledFixture)
-  check(disabled.auth.status === 'disabled' && Boolean(document.getElementById('protected')), 'disabled policy was not distinct and usable')
+  check(disabled.auth.status === 'disabled', 'disabled policy did not produce a distinct state')
+  check(!disabled.auth.isAuthenticated && !disabled.auth.isAdmin, 'disabled policy granted authenticated or admin authority')
+  check(!document.getElementById('protected') && Boolean(document.querySelector('[data-auth-state="disabled"]')), 'disabled policy exposed protected content')
   disabled.close()
 
   clearCredential(); const logoutFixture = fixture(); const logout = await mount(logoutFixture)
