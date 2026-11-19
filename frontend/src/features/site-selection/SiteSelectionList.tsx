@@ -1,9 +1,11 @@
 import { getApiErrorMessage } from '../../platform/http/index';
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { siteSelectionApi } from './api';
-import type { SiteSelectionFormSummary } from './types';
 import { parseLocalDate } from '../../platform/ui/date';
+import { ViewState } from '../../platform/ui';
+import { useSiteSelectionForms } from './resources';
+import type { SiteSelectionFormSummary } from './types';
 
 const fmtDateRange = (start?: string | null, end?: string | null): string => {
   if (!start && !end) return '-';
@@ -17,25 +19,8 @@ const publicUrl = (guid: string) => `${window.location.origin}/site-selection/${
 
 const SiteSelectionList: React.FC = () => {
   const navigate = useNavigate();
-  const [forms, setForms] = useState<SiteSelectionFormSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadForms = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      setForms(await siteSelectionApi.listForms());
-    } catch (err: any) {
-      setError(getApiErrorMessage(err, 'Failed to load site selection forms'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadForms();
-  }, []);
+  const resource = useSiteSelectionForms();
+  const forms = resource.data ?? [];
 
   const copyLink = async (guid: string) => {
     await navigator.clipboard.writeText(publicUrl(guid));
@@ -44,11 +29,11 @@ const SiteSelectionList: React.FC = () => {
   const deleteForm = async (form: SiteSelectionFormSummary) => {
     if (!window.confirm(`Delete ${form.title}?`)) return;
     await siteSelectionApi.deleteForm(form.id);
-    await loadForms();
+    resource.invalidate();
   };
 
-  if (loading) {
-    return <div className="max-w-7xl mx-auto p-6 text-center">Loading...</div>;
+  if (resource.status === 'loading') {
+    return <div className="max-w-7xl mx-auto p-6"><ViewState kind="loading" title="Loading site selection forms" compact /></div>;
   }
 
   return (
@@ -60,7 +45,7 @@ const SiteSelectionList: React.FC = () => {
         </p>
       </div>
 
-      {error && <div className="mb-4 p-4 bg-red-100 text-red-700 rounded-md">{error}</div>}
+      {resource.status === 'error' && <ViewState kind="unavailable" title="Site selection forms are temporarily unavailable" message={getApiErrorMessage(resource.error, 'Failed to load site selection forms')} action={<button type="button" onClick={resource.refetch}>Try again</button>} compact />}
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200">

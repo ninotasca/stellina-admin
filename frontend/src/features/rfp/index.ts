@@ -1,4 +1,5 @@
 export { rfpApi } from './api'
+export { useRFPs } from './resources'
 export type * from './types'
 export { default as HotelInvitations } from './HotelInvitations'
 export { default as HotelResponseForm } from './HotelResponseForm'

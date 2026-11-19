@@ -166,6 +166,38 @@ test('all private clients use same-origin paths and preserve bearer tokens', asy
   assert.match(calls[1].url, /statuses=definite&statuses=prospect/)
 })
 
+test('domain reads propagate cancellation and domain mutations retain reviewed endpoints', async () => {
+  authenticate()
+  const controller = new AbortController()
+  const reads = [
+    [() => commissionApi.listEvents(controller.signal), '/commissions/events'],
+    [() => cventTrackerApi.listAll(controller.signal), '/commissions/cvent-trackers'],
+    [() => rfpApi.listRFPs(controller.signal), '/rfps'],
+    [() => siteSelectionApi.listForms(undefined, controller.signal), '/site-selection/forms'],
+    [() => nimbleApi.listDeals({}, controller.signal), '/nimble/deals'],
+    [() => administrationApi.getLoginAttempts(100, undefined, controller.signal), '/auth/login-attempts'],
+  ]
+  for (const [read, url] of reads) {
+    await read()
+    assert.equal(calls.at(-1).url, url)
+    assert.equal(calls.at(-1).signal, controller.signal)
+  }
+
+  const mutations = [
+    [() => commissionApi.deleteEvent('event'), '/commissions/events/event', 'delete'],
+    [() => cventTrackerApi.reset('event'), '/commissions/event/cvent-tracker', 'delete'],
+    [() => rfpApi.deleteRFP('rfp'), '/rfps/rfp', 'delete'],
+    [() => siteSelectionApi.deleteForm('form'), '/site-selection/forms/form', 'delete'],
+    [() => administrationApi.createAllowedGoogleAccount({ email: 'admin@example.com' }), '/auth/allowed-google-accounts', 'post'],
+  ]
+  for (const [mutate, url, method] of mutations) {
+    await mutate()
+    assert.equal(calls.at(-1).url, url)
+    assert.equal(calls.at(-1).method, method)
+  }
+  assert.ok(Object.keys(nimbleApi).every(name => name.startsWith('list')), 'Nimble integration is intentionally read-only')
+})
+
 test('public forms never gain bearer auth or 401 login redirects', async () => {
   authenticate()
   for (const method of [() => publicSiteSelectionApi.getForm('public-guid'), () => publicHotelApi.getRFPByGuid('public-guid')]) {

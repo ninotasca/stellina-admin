@@ -36,8 +36,8 @@ export const rfpApi = {
   },
 
   // Cross-event listing (top-nav RFPs page)
-  listRFPs: async (): Promise<RFPWithEventSummary[]> => {
-    const response = await apiClient.get('/rfps');
+  listRFPs: async (signal?: AbortSignal): Promise<RFPWithEventSummary[]> => {
+    const response = await apiClient.get('/rfps', { signal });
     return response.data;
   },
 

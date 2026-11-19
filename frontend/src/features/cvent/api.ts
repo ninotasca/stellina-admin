@@ -130,8 +130,8 @@ export interface CventMergeJobDetail {
 
 export const cventTrackerApi = {
   /** Returns all live Hotel Comparison Summary trackers. */
-  listAll: async (): Promise<CventTrackerView[]> => {
-    const res = await apiClient.get('/commissions/cvent-trackers');
+  listAll: async (signal?: AbortSignal): Promise<CventTrackerView[]> => {
+    const res = await apiClient.get('/commissions/cvent-trackers', { signal });
     return res.data;
   },
 

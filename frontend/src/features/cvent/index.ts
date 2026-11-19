@@ -1,4 +1,5 @@
 export { cventTrackerApi } from './api'
+export { useCventTrackers } from './resources'
 export type { CventTrackerView } from './api'
 export { default as CventMergePage } from './CventMergePage'
 export { default as CventResponsesCard } from './CventResponsesCard'

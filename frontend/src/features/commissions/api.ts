@@ -37,8 +37,8 @@ export interface ProjectionParams {
 
 export const commissionApi = {
   // Events
-  listEvents: async (): Promise<CommissionEventWithLineItems[]> => {
-    const res = await apiClient.get('/commissions/events', { params: testBookingParams() });
+  listEvents: async (signal?: AbortSignal): Promise<CommissionEventWithLineItems[]> => {
+    const res = await apiClient.get('/commissions/events', { params: testBookingParams(), signal });
     return res.data;
   },
   getEvent: async (id: string): Promise<CommissionEventWithLineItems> => {

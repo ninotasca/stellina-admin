@@ -1,4 +1,5 @@
 export { commissionApi } from './api'
+export { useCommissionEvents } from './resources'
 export type * from './types'
 export { default as CommissionDashboard } from './CommissionDashboard'
 export { default as CommissionForm } from './CommissionForm'

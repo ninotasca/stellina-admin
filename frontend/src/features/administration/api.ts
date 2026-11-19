@@ -2,8 +2,8 @@ import { coreProtectedApiClient as coreClient, stellinaProtectedApiClient as ste
 import type { AllowedGoogleAccount, LoginAttempt } from '../../domain/auth'
 
 export const administrationApi = {
-  async getLoginAttempts(limit = 100, cursor?: string): Promise<LoginAttempt[]> {
-    return (await stellinaClient.get<LoginAttempt[]>('/auth/login-attempts', { params: { limit, ...(cursor ? { cursor } : {}) } })).data
+  async getLoginAttempts(limit = 100, cursor?: string, signal?: AbortSignal): Promise<LoginAttempt[]> {
+    return (await stellinaClient.get<LoginAttempt[]>('/auth/login-attempts', { params: { limit, ...(cursor ? { cursor } : {}) }, signal })).data
   },
   async getAllowedGoogleAccounts(): Promise<AllowedGoogleAccount[]> {
     return (await coreClient.get<AllowedGoogleAccount[]>('/auth/allowed-google-accounts')).data

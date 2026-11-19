@@ -10,9 +10,9 @@ import type {
 const API_BASE_URL = STELLINA_API_URL;
 
 export const siteSelectionApi = {
-  listForms: async (eventId?: string): Promise<SiteSelectionFormSummary[]> => {
+  listForms: async (eventId?: string, signal?: AbortSignal): Promise<SiteSelectionFormSummary[]> => {
     const params = eventId ? { event_id: eventId } : undefined;
-    const response = await apiClient.get('/site-selection/forms', { params });
+    const response = await apiClient.get('/site-selection/forms', { params, signal });
     return response.data;
   },
 

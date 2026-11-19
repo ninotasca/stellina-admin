@@ -111,12 +111,12 @@ export const nimbleApi = {
     return res.data;
   },
 
-  listDeals: async (params: { page?: number; per_page?: number } = {}): Promise<NimbleDealsResponse> => {
+  listDeals: async (params: { page?: number; per_page?: number } = {}, signal?: AbortSignal): Promise<NimbleDealsResponse> => {
     const search = new URLSearchParams();
     if (params.page) search.set('page', String(params.page));
     if (params.per_page) search.set('per_page', String(params.per_page));
     const qs = search.toString();
-    const res = await apiClient.get(`/nimble/deals${qs ? `?${qs}` : ''}`);
+    const res = await apiClient.get(`/nimble/deals${qs ? `?${qs}` : ''}`, { signal });
     return res.data;
   },
 };

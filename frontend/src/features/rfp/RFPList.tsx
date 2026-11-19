@@ -1,9 +1,10 @@
 import { getApiErrorMessage } from '../../platform/http/index';
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { rfpApi } from './api';
-import type { RFPWithEventSummary } from './types';
 import { parseLocalDate } from '../../platform/ui/date';
+import { ViewState } from '../../platform/ui';
+import { useRFPs } from './resources';
 
 const fmtDateRange = (start?: string | null, end?: string | null): string => {
   if (!start && !end) return '—';
@@ -15,25 +16,8 @@ const fmtDateRange = (start?: string | null, end?: string | null): string => {
 
 const RFPList: React.FC = () => {
   const navigate = useNavigate();
-  const [rfps, setRfps] = useState<RFPWithEventSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    loadRFPs();
-  }, []);
-
-  const loadRFPs = async () => {
-    try {
-      setLoading(true);
-      const data = await rfpApi.listRFPs();
-      setRfps(data);
-    } catch (err: any) {
-      setError(getApiErrorMessage(err, 'Failed to load RFPs'));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const resource = useRFPs();
+  const rfps = resource.data ?? [];
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('Are you sure you want to delete this RFP?')) {
@@ -41,16 +25,16 @@ const RFPList: React.FC = () => {
     }
     try {
       await rfpApi.deleteRFP(id);
-      loadRFPs();
-    } catch (err: any) {
+      resource.invalidate();
+    } catch (err: unknown) {
       alert(getApiErrorMessage(err, 'Failed to delete RFP'));
     }
   };
 
-  if (loading) {
+  if (resource.status === 'loading') {
     return (
       <div className="max-w-7xl mx-auto p-6">
-        <div className="text-center">Loading...</div>
+        <ViewState kind="loading" title="Loading RFPs" compact />
       </div>
     );
   }
@@ -64,9 +48,7 @@ const RFPList: React.FC = () => {
         </p>
       </div>
 
-      {error && (
-        <div className="mb-4 p-4 bg-red-100 text-red-700 rounded-md">{error}</div>
-      )}
+      {resource.status === 'error' && <ViewState kind="unavailable" title="RFPs are temporarily unavailable" message={getApiErrorMessage(resource.error, 'Failed to load RFPs')} action={<button type="button" onClick={resource.refetch}>Try again</button>} compact />}
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200">
