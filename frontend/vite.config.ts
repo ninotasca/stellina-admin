@@ -36,8 +36,11 @@ function buildVersion() {
 export default defineConfig(({ mode, command }) => {
   const environment = resolveBuildEnvironment(mode, process.env, command)
   process.env.NODE_ENV = environment === 'development' ? 'development' : 'production'
-  const env = loadEnv(environment, process.cwd(), '')
+  // Vite may leave this framework-owned marker in hosted build environments.
+  // It is not application configuration and must not enter the strict VITE_ allowlist.
   delete process.env.VITE_USER_NODE_ENV
+  const env = loadEnv(environment, process.cwd(), '')
+  delete env.VITE_USER_NODE_ENV
   const { manifest, registry } = readPinnedConfiguration()
   const decoded = decodePublicConfig(manifest, selectPublicValues(env), environment, registry)
   if (!decoded.ok) throw new Error(`Application configuration unavailable (${decoded.code})`)
