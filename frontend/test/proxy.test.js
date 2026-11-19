@@ -29,6 +29,7 @@ afterEach(() => {
 })
 const idHeader = 'x-stellina-request-id'
 const request = (init, query = '') => new Request(`https://stellina.example${route}${query}`, init)
+const errorDetail = (code, message, correlationId) => ({ detail: { code, message, correlation_id: correlationId } })
 function recorder() {
   const entries = []
   const lines = []
@@ -83,11 +84,19 @@ for (const [outcome, status, event, level, errorType] of [
     })
     assert.equal(response.status, status)
     assert.equal(response.headers.get(idHeader), 'message-fixture')
-    assert.equal(response.headers.get('cache-control'), errorType ? 'no-store' : 'private')
-    assert.deepEqual(await response.json(), errorType ? {
-      detail: outcome === 'timeout' ? 'The Stellina data service took too long to respond.' : 'Stellina could not reach the data service.',
-      request_id: 'message-fixture',
-    } : { ok: true })
+    assert.equal(response.headers.get('cache-control'), status >= 400 ? 'no-store' : 'private')
+    const expectedBody = outcome === 'client error'
+      ? errorDetail('resource_not_found', 'The requested Stellina resource was not found.', 'message-fixture')
+      : outcome === 'server error'
+        ? errorDetail('upstream_failure', 'The Stellina data service could not complete the request.', 'message-fixture')
+        : errorType
+          ? errorDetail(
+            outcome === 'timeout' ? 'upstream_timeout' : 'upstream_unavailable',
+            outcome === 'timeout' ? 'The Stellina data service took too long to respond.' : 'Stellina could not reach the data service.',
+            'message-fixture',
+          )
+          : { ok: true }
+    assert.deepEqual(await response.json(), expectedBody)
     const expectedMessages = {
       'stellina.proxy.started': 'Stellina proxy request started.',
       'stellina.proxy.completed': 'Stellina proxy request completed.',
@@ -246,14 +255,29 @@ for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
   })
 }
 
-for (const status of [400, 401, 403, 404, 405, 422, 429, 500]) {
-  test(`upstream ${status} retains response and has matching log severity`, async () => {
+for (const [status, code, message] of [
+  [400, 'request_rejected', 'The Stellina request was not accepted.'],
+  [401, 'authentication_required', 'Authentication is required.'],
+  [403, 'authorization_denied', 'This account is not permitted to perform that action.'],
+  [404, 'resource_not_found', 'The requested Stellina resource was not found.'],
+  [405, 'method_not_allowed', 'That operation is not supported.'],
+  [422, 'validation_failed', 'The Stellina request did not pass validation.'],
+  [429, 'rate_limited', 'Too many Stellina requests were made. Please try again later.'],
+  [500, 'upstream_failure', 'The Stellina data service could not complete the request.'],
+  [503, 'upstream_unavailable', 'The Stellina data service is unavailable.'],
+]) {
+  test(`upstream ${status} is replaced with a safe classified response and has matching log severity`, async () => {
     const { entries, logger } = recorder()
+    const privateBody = JSON.stringify({ detail: 'private SQL/provider failure', token: 'secret-token' })
     const response = await proxyStellinaRequest(request(), route, {
-      logger, fetchImpl: async () => new Response('original-body', { status, headers: { 'www-authenticate': 'Bearer', 'retry-after': '60' } }),
+      logger, fetchImpl: async () => new Response(privateBody, { status, headers: { 'www-authenticate': 'Bearer', 'retry-after': '60' } }),
     })
     assert.equal(response.status, status)
-    assert.equal(await response.text(), 'original-body')
+    const payload = await response.json()
+    assert.deepEqual(payload, errorDetail(code, message, response.headers.get(idHeader)))
+    assert.doesNotMatch(JSON.stringify(payload), /private|SQL|provider|secret-token/)
+    assert.equal(response.headers.get('cache-control'), 'no-store')
+    assert.match(response.headers.get('content-type'), /^application\/json/)
     assert.equal(response.headers.get('www-authenticate'), 'Bearer')
     assert.equal(response.headers.get('retry-after'), '60')
     assert.equal(entries[0].level, status >= 500 ? 'error' : 'warn')
@@ -358,7 +382,7 @@ test('validated references correlate every event with upstream, response and gat
       }
       assert.equal(response.status, outcome === 'success' ? 200 : outcome === 'failure' ? 502 : 504)
       assert.equal(response.headers.get(idHeader), upstreamId)
-      if (outcome !== 'success') assert.equal((await response.json()).request_id, upstreamId)
+      if (outcome !== 'success') assert.equal((await response.json()).detail.correlation_id, upstreamId)
       assert.equal(entries.length, 2)
       for (const entry of entries) {
         assertProxyEnvelope(entry)
@@ -419,8 +443,8 @@ test('DEBUG and gateway errors never disclose exceptions, bodies, tokens, cookie
   } })
   const payload = await response.json()
   assert.equal(response.status, 502)
-  assert.equal(payload.request_id, response.headers.get(idHeader))
-  assert.equal(entries.at(-1).request_id, payload.request_id)
+  assert.equal(payload.detail.correlation_id, response.headers.get(idHeader))
+  assert.equal(entries.at(-1).request_id, payload.detail.correlation_id)
   assert.equal(response.headers.get('cache-control'), 'no-store')
   assert.ok(!JSON.stringify({ entries, payload }).includes(secret))
   assert.ok(!JSON.stringify(entries).includes('destination'))
@@ -469,7 +493,10 @@ test('HEAD has no request or response body; OPTIONS retains upstream semantics',
     } }))
     assert.equal(response.status, 405)
     assert.equal(response.headers.get('allow'), 'GET')
-    assert.equal(await response.text(), '')
+    if (method === 'HEAD') assert.equal(await response.text(), '')
+    else assert.deepEqual(await response.json(), errorDetail(
+      'method_not_allowed', 'That operation is not supported.', response.headers.get(idHeader),
+    ))
   }
 })
 
@@ -524,8 +551,9 @@ test('localhost: correlation, compressed JSON, connection failure, invalid JSON,
       assert.equal(response.headers.get(idHeader), `localhost-${mode}`)
       assert.equal(entries.at(-1).request_id, received.at(-1).request_id)
       assert.equal(entries.at(-1).status, status)
-      if (mode !== 'invalid') assert.equal((await response.json()).request_id, `localhost-${mode}`)
-      else assert.equal(await response.text(), '<html>private-value</html>')
+      if (mode === 'success') assert.equal((await response.json()).request_id, `localhost-${mode}`)
+      else if (mode === 'invalid') assert.equal(await response.text(), '<html>private-value</html>')
+      else assert.equal((await response.json()).detail.correlation_id, `localhost-${mode}`)
       assert.equal(response.headers.get('content-encoding'), null)
       assert.equal(response.headers.get('content-length'), null)
     }

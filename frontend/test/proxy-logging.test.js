@@ -58,18 +58,20 @@ for (const failure of ['serialization', 'primary sink']) {
             },
           })
           assert.equal(response.headers.get(idHeader), 'logging-fixture')
-          if (outcome === 'success' || outcome === 'upstream error') {
-            assert.equal(response.status, outcome === 'success' ? 201 : 503)
+          if (outcome === 'success') {
+            assert.equal(response.status, 201)
             assert.equal(await response.text(), `upstream body ${canary}`)
             assert.equal(response.headers.get('content-type'), 'text/plain')
             assert.equal(response.headers.get('cache-control'), 'private')
             assert.equal(response.headers.get('retry-after'), '60')
           } else {
-            assert.equal(response.status, outcome === 'timeout' ? 504 : 502)
-            assert.deepEqual(await response.json(), {
-              detail: outcome === 'timeout' ? 'The Stellina data service took too long to respond.' : 'Stellina could not reach the data service.',
-              request_id: 'logging-fixture',
-            })
+            const [status, code, message] = outcome === 'upstream error'
+              ? [503, 'upstream_unavailable', 'The Stellina data service is unavailable.']
+              : outcome === 'timeout'
+                ? [504, 'upstream_timeout', 'The Stellina data service took too long to respond.']
+                : [502, 'upstream_unavailable', 'Stellina could not reach the data service.']
+            assert.equal(response.status, status)
+            assert.deepEqual(await response.json(), { detail: { code, message, correlation_id: 'logging-fixture' } })
             assert.equal(response.headers.get('cache-control'), 'no-store')
           }
           assert.equal(primaryCalls, failure === 'serialization' ? 0 : 2)
@@ -174,9 +176,9 @@ test('fallback construction failure preserves success and gateway responses', as
         },
       })
       assert.equal(response.status, fails ? 502 : 201)
-      if (fails) assert.deepEqual(await response.json(), {
-        detail: 'Stellina could not reach the data service.', request_id: 'construction-fixture',
-      })
+      if (fails) assert.deepEqual(await response.json(), { detail: {
+        code: 'upstream_unavailable', message: 'Stellina could not reach the data service.', correlation_id: 'construction-fixture',
+      } })
       else assert.equal(await response.text(), 'ok')
     }
     assert.deepEqual(writes, [])
