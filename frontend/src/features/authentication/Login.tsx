@@ -3,12 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../platform/auth/auth-context';
 import { reportAuthEvent } from '../../platform/auth/api';
 import { supabase } from '../../platform/auth/supabase';
+import { ViewState } from '../../platform/ui';
 
 const REDIRECT_URI = `${window.location.origin}/auth/callback`;
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
-  const { magicLogin, isAuthenticated, policyLoading, googleLoginEnabled, magicLoginEnabled } = useAuth();
+  const { status, message, refresh, magicLogin, isAuthenticated, policyLoading, googleLoginEnabled, magicLoginEnabled } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,6 +78,13 @@ const Login: React.FC = () => {
               </p>
             </div>
 
+            {status === 'unavailable' ? <ViewState
+              kind="unavailable"
+              title="Authentication is unavailable"
+              message={message ?? 'We could not reach the account service. Your information has not been changed.'}
+              action={<button type="button" onClick={() => void refresh()}>Try again</button>}
+              compact
+            /> : <>
             {error && (
               <div className="mb-5 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
                 {error}
@@ -117,6 +125,7 @@ const Login: React.FC = () => {
             <p className="mt-6 text-center text-xs text-gray-400">
               Access requires an approved Stellina Connections account.
             </p>
+            </>}
           </div>
         </main>
 
