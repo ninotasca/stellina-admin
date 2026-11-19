@@ -22,8 +22,10 @@ const ERROR_BY_STATUS = new Map([
 const LEVELS = { DEBUG: 10, INFO: 20, WARN: 30, ERROR: 40 }
 const LOG_FAILURE_FIELDS = '"level":"error","service":"stellina-web","component":"api-proxy","event":"stellina.proxy.logging_failed","message":"Stellina proxy diagnostic logging failed."'
 export function classifyEnvironment(values = process.env) {
-  const selected = values.ENVIRONMENT_NAME ?? values.RAILWAY_ENVIRONMENT_NAME ?? values.VERCEL_ENV ?? values.NODE_ENV
-  if (selected === undefined && (values.VERCEL || values.RAILWAY_SERVICE_ID || values.RAILWAY_DEPLOYMENT_ID)) {
+  const selected = [values.ENVIRONMENT_NAME, values.RAILWAY_ENVIRONMENT_NAME, values.VERCEL_ENV, values.NODE_ENV]
+    .find(value => value?.trim())
+  if (selected === undefined && [values.VERCEL, values.RAILWAY_SERVICE_ID, values.RAILWAY_DEPLOYMENT_ID]
+    .some(value => value?.trim())) {
     throw new Error('Hosted environment must be identified')
   }
   const aliases = {

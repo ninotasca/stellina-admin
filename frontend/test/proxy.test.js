@@ -146,7 +146,14 @@ test('environment classification, precedence and startup rejection', async () =>
   ]) assert.equal(classifyEnvironment({ ENVIRONMENT_NAME: alias, VERCEL_ENV: 'production' }), expected)
   assert.equal(classifyEnvironment({ RAILWAY_ENVIRONMENT_NAME: 'preview', NODE_ENV: 'production' }), 'staging')
   assert.equal(classifyEnvironment({ VERCEL_ENV: 'preview', NODE_ENV: 'production' }), 'staging')
-  for (const values of [{ ENVIRONMENT_NAME: '' }, { ENVIRONMENT_NAME: 'typo', VERCEL_ENV: 'production' },
+  assert.equal(classifyEnvironment({ ENVIRONMENT_NAME: ' ', RAILWAY_ENVIRONMENT_NAME: 'preview', VERCEL_ENV: 'development' }), 'staging')
+  assert.equal(classifyEnvironment({ ENVIRONMENT_NAME: '', RAILWAY_ENVIRONMENT_NAME: '\t', VERCEL_ENV: 'production' }), 'production')
+  assert.equal(classifyEnvironment({ ENVIRONMENT_NAME: ' ', VERCEL_ENV: '', NODE_ENV: 'production' }), 'production')
+  assert.equal(classifyEnvironment({ ENVIRONMENT_NAME: '', RAILWAY_ENVIRONMENT_NAME: ' ', VERCEL_ENV: '\t', NODE_ENV: '' }), 'development')
+  for (const marker of ['VERCEL', 'RAILWAY_SERVICE_ID', 'RAILWAY_DEPLOYMENT_ID']) {
+    assert.throws(() => classifyEnvironment({ ENVIRONMENT_NAME: ' ', [marker]: 'fixture' }), /Hosted environment must be identified/)
+  }
+  for (const values of [{ ENVIRONMENT_NAME: 'typo', VERCEL_ENV: 'production' },
     { VERCEL_ENV: 'typo' }, { VERCEL: '1' }, { RAILWAY_SERVICE_ID: 'fixture' }, { RAILWAY_DEPLOYMENT_ID: 'fixture' }]) {
     assert.throws(() => classifyEnvironment(values))
   }
