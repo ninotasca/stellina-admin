@@ -7,7 +7,9 @@ let reply = { status: 200, data: '{}' }
 let calls = []
 const store = new Map()
 globalThis.localStorage = { getItem: key => store.get(key) ?? null, removeItem: key => store.delete(key), setItem: (key, value) => store.set(key, value) }
-globalThis.window = { location: { href: '/dashboard', pathname: '/dashboard' } }
+const sessionStore = new Map()
+globalThis.sessionStorage = { getItem: key => sessionStore.get(key) ?? null, removeItem: key => sessionStore.delete(key), setItem: (key, value) => sessionStore.set(key, value) }
+globalThis.window = Object.assign(new EventTarget(), { location: { href: '/dashboard', pathname: '/dashboard' } })
 axios.defaults.adapter = async config => {
   calls.push(config)
   if (reply.throw) throw reply.throw
@@ -15,8 +17,9 @@ axios.defaults.adapter = async config => {
   if (reply.status >= 400) throw new AxiosError('Raw adapter failure', 'ERR_BAD_REQUEST', config, null, response)
   return response
 }
-const { createApiClient, getApiErrorMessage, publicApiClient } = await import('../src/platform/http/index.ts')
-const { authApi } = await import('../src/platform/auth/api.ts')
+const { createApiClient, getApiErrorMessage, publicApiClient, coreProtectedApiClient } = await import('../src/platform/http/index.ts')
+const { exchangeBrowserSession, logoutBrowserSession } = await import('../src/platform/auth/api.ts')
+const { clearCredential, credentialSnapshot, installCredential } = await import('../src/platform/auth/credential-store.ts')
 const { administrationApi } = await import('../src/features/administration/api.ts')
 const { commissionApi } = await import('../src/features/commissions/api.ts')
 const { cventTrackerApi } = await import('../src/features/cvent/api.ts')
@@ -29,9 +32,13 @@ test.beforeEach(() => {
   reply = { status: 200, data: '{}' }
   calls = []
   store.clear()
+  sessionStore.clear()
+  clearCredential()
   globalThis.window.location.href = '/dashboard'
   globalThis.window.location.pathname = '/dashboard'
 })
+
+const authenticate = (token = 'private-token') => installCredential(token, 'c'.repeat(32), '2099-01-01T00:00:00.000Z')
 
 async function failure(client = createApiClient()) {
   return client.get('/example').then(() => assert.fail('expected rejection'), error => error)
@@ -138,8 +145,8 @@ test('successful empty deletes, HEAD and blob downloads retain their values', as
 })
 
 test('all private clients use same-origin paths and preserve bearer tokens', async () => {
-  store.set('access_token', 'private-token')
-  await authApi.healthCheck()
+  authenticate()
+  await coreProtectedApiClient.get('/health/stellina')
   assert.equal(calls.at(-1).baseURL, '/api/v1/core')
   assert.equal(calls.at(-1).url, '/health/stellina')
   assert.equal(calls.at(-1).headers.Authorization, 'Bearer private-token')
@@ -160,7 +167,7 @@ test('all private clients use same-origin paths and preserve bearer tokens', asy
 })
 
 test('public forms never gain bearer auth or 401 login redirects', async () => {
-  store.set('access_token', 'private-token')
+  authenticate()
   for (const method of [() => publicSiteSelectionApi.getForm('public-guid'), () => publicHotelApi.getRFPByGuid('public-guid')]) {
     await method()
     assert.match(calls.at(-1).url, /^\/api\/v1\/stellina\//)
@@ -171,47 +178,36 @@ test('public forms never gain bearer auth or 401 login redirects', async () => {
   reply = { status: 401, data: '{}' }
   await assert.rejects(publicApiClient.get('/api/v1/stellina/public'))
   assert.equal(globalThis.window.location.href, '/dashboard')
-  assert.equal(store.get('access_token'), 'private-token')
+  assert.equal(credentialSnapshot().accessToken, 'private-token')
 })
 
-test('shared OAuth payload, logout/auth paths and established 401 redirect are preserved', async () => {
-  store.set('access_token', 'private-token')
-  store.set('user', '{}')
-  await authApi.googleAuth('code-example', 'https://stellina.example/auth/callback')
-  assert.equal(calls[0].baseURL, '/api/v1/core')
-  assert.equal(calls[0].url, '/auth/google')
-  assert.deepEqual(JSON.parse(calls[0].data), { code: 'code-example', redirect_uri: 'https://stellina.example/auth/callback', site_id: 'd38ebee3-f29d-42ac-ae53-5d20d1bf7fde' })
-  await authApi.logout()
-  assert.equal(calls.at(-1).url, '/auth/logout')
-  reply = { status: 401, data: '<html>private-secret</html>' }
-  await assert.rejects(authApi.getCurrentUser())
-  assert.equal(calls.at(-1).baseURL, '/api/v1/core')
-  assert.equal(calls.at(-1).url, '/auth/session/stellina')
-  assert.equal(globalThis.window.location.href, '/login')
-  assert.equal(store.has('access_token'), false)
-  assert.equal(store.has('user'), false)
+test('provider proof is used only for Core browser-session exchange and is never installed directly', async () => {
+  const now = Date.now(), response = {
+    access_token: 'a'.repeat(40), token_type: 'bearer', issued_at: new Date(now).toISOString(),
+    expires_at: new Date(now + 120000).toISOString(), expires_in_seconds: 120, csrf_token: 'c'.repeat(32),
+    authority: { site_key: 'stellina', actor: { id: 'actor', email: 'admin@stellina.example', full_name: 'Admin', avatar_url: null, provider: 'google' }, roles: ['admin'], permissions: [], session_started_at: new Date(now - 1000).toISOString(), absolute_expires_at: new Date(now + 3600000).toISOString(), idle_expires_at: new Date(now + 1800000).toISOString() },
+  }
+  reply = { status: 200, data: JSON.stringify(response) }
+  assert.deepEqual(await exchangeBrowserSession('raw-provider-proof'), response)
+  assert.equal(calls[0].url, '/api/v1/core/auth/browser-session/stellina/exchange')
+  assert.equal(calls[0].headers.Authorization, 'Bearer raw-provider-proof')
+  assert.equal(calls[0].withCredentials, true)
+  assert.equal(credentialSnapshot().accessToken, null)
+  await logoutBrowserSession('c'.repeat(32))
+  assert.equal(calls.at(-1).url, '/api/v1/core/auth/browser-session/stellina')
+  assert.equal(calls.at(-1).headers['X-CSRF-Token'], 'c'.repeat(32))
 })
 
-test('401 on an auth route clears app state without reloading the login page', async () => {
-  store.set('access_token', 'stale-token')
-  store.set('user', '{}')
-  globalThis.window.location.href = '/login'
-  globalThis.window.location.pathname = '/login'
-  reply = { status: 401, data: '{}' }
-  await assert.rejects(authApi.getCurrentUser())
-  assert.equal(globalThis.window.location.href, '/login')
-  assert.equal(store.has('access_token'), false)
-  assert.equal(store.has('user'), false)
-})
-
-test('all protected clients converge on bounded 401 cleanup and redirect', async () => {
-  store.set('access_token', 'private-token')
-  store.set('user', '{}')
+test('protected 401 emits its credential generation without clearing a newer session or redirecting', async () => {
+  const installed = authenticate('older-token')
+  let rejectedGeneration = null
+  const listener = event => { rejectedGeneration = event.detail.generation }
+  globalThis.window.addEventListener('unoventi:auth-rejected', listener, { once: true })
   reply = { status: 401, data: '{}' }
   await assert.rejects(commissionApi.listEvents())
-  assert.equal(globalThis.window.location.href, '/login')
-  assert.equal(store.has('access_token'), false)
-  assert.equal(store.has('user'), false)
+  assert.equal(rejectedGeneration, installed.generation)
+  assert.equal(credentialSnapshot().accessToken, 'older-token')
+  assert.equal(globalThis.window.location.href, '/dashboard')
 })
 
 test('multipart uploads preserve FormData, paths and no retry', async () => {
@@ -244,7 +240,7 @@ test('upload validation keeps friendly workbook errors while hiding parser and c
 
 test('history v1 client uses scoped Stellina authority and retains the provider contract', async () => {
   const fixture = JSON.parse(readFileSync(new URL('./contracts/login-history-v1.json', import.meta.url)))
-  store.set('access_token', 'exchanged-stellina-session')
+  authenticate('exchanged-stellina-session')
   reply.data = JSON.stringify(fixture.scoped_response)
   const rows = await administrationApi.getLoginAttempts(2)
   assert.deepEqual(rows, fixture.scoped_response)

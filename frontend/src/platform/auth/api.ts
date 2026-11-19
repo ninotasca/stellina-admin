@@ -1,64 +1,62 @@
-import { coreProtectedApiClient } from '../http/index'
-import type { GoogleAuthRequest, LogoutResponse, TokenResponse, User } from '../../domain/auth'
-import { publicConfig } from '../config/index'
+import type { AuthSessionContext, BrowserSessionResponse, PublicAuthConfig } from '../../domain/auth'
+import { CORE_API_URL, publicApiClient } from '../http/index'
+import { authConfig } from './config'
 
-const SITE_ID = publicConfig.siteId
-export const AUTH_SITE_KEY = publicConfig.manifest.auth.siteKey
-
-export interface PublicAuthConfig {
-  enabled: boolean
-  providers: Array<'email' | 'google'>
-  registration: 'open' | 'closed'
-  password_reset: boolean
-  magic_login: boolean
+async function publicCoreRequest<T>(method: string, path: string, options: { data?: unknown; headers?: Record<string, string> } = {}): Promise<T> {
+  return (await publicApiClient.request<T>({
+    method, url: `${CORE_API_URL}${path}`, data: options.data, headers: options.headers, withCredentials: true,
+  })).data
 }
 
-class AuthApi {
-  private readonly coreClient = coreProtectedApiClient
-
-  async healthCheck(): Promise<{ status: string; message: string }> {
-    return (await this.coreClient.get('/health/stellina')).data
-  }
-
-  async googleAuth(code: string, redirectUri: string): Promise<TokenResponse> {
-    const request: GoogleAuthRequest = { code, redirect_uri: redirectUri, ...(SITE_ID ? { site_id: SITE_ID } : {}) }
-    return (await this.coreClient.post<TokenResponse>('/auth/google', request)).data
-  }
-
-  async logout(): Promise<LogoutResponse> {
-    return (await this.coreClient.post<LogoutResponse>('/auth/logout')).data
-  }
-
-  async exchangeSession(): Promise<{ access_token: string; user: User }> {
-    const response = await this.coreClient.get<{
-      access_token: string
-      context: { identity: { id: string; email: string; full_name: string | null; avatar_url: string | null }; roles: string[] }
-    }>('/auth/session/stellina')
-    const context = response.data.context
-    const now = new Date().toISOString()
-    return { access_token: response.data.access_token, user: {
-      id: context.identity.id, email: context.identity.email, full_name: context.identity.full_name,
-      avatar_url: context.identity.avatar_url, is_admin: true, created_at: now, updated_at: now,
-    } }
-  }
-
-  async getCurrentUser(): Promise<User> { return (await this.exchangeSession()).user }
-
-  async getAuthPolicy(): Promise<PublicAuthConfig> {
-    return (await this.coreClient.get<PublicAuthConfig>(`/auth/config/${AUTH_SITE_KEY}`)).data
-  }
-
-  async magicLogin(): Promise<{ access_token: string }> {
-    return (await this.coreClient.post<{ access_token: string }>(`/auth/magic-login/${AUTH_SITE_KEY}`)).data
-  }
-
-  async reportAuthEvent(eventType: 'oauth_started' | 'oauth_callback_failed' | 'auth_error' | 'logout', errorCode?: string): Promise<void> {
-    try {
-      await this.coreClient.post(`/auth/events/${AUTH_SITE_KEY}`, {
-        event_type: eventType, ...(errorCode ? { error_code: errorCode.slice(0, 120) } : {}),
-      })
-    } catch { /* Auth telemetry must not interrupt authentication. */ }
+export async function reportAuthEvent(payload: { event_type: string; email?: string; error_code?: string; details?: Record<string, string | number | boolean> }): Promise<void> {
+  try { await publicCoreRequest('POST', `/auth/events/${encodeURIComponent(authConfig.siteId)}`, { data: payload }) }
+  catch { /* Audit telemetry must never prevent authentication. */ }
+}
+export function requestMagicLogin(): Promise<{ access_token: string }> {
+  return publicCoreRequest('POST', `/auth/magic-login/${encodeURIComponent(authConfig.siteId)}`)
+}
+export function fetchAuthPolicy(siteKey: string): Promise<PublicAuthConfig> {
+  return publicCoreRequest('GET', `/auth/config/${encodeURIComponent(siteKey)}`)
+}
+const browserSessionPath = `/auth/browser-session/${encodeURIComponent(authConfig.siteId)}`
+export function exchangeBrowserSession(providerProof: string): Promise<BrowserSessionResponse> {
+  return publicCoreRequest<unknown>('POST', `${browserSessionPath}/exchange`, { headers: { Authorization: `Bearer ${providerProof}` } }).then(decodeBrowserSession)
+}
+export function restoreBrowserSession(): Promise<BrowserSessionResponse> {
+  return publicCoreRequest<unknown>('POST', `${browserSessionPath}/restore`).then(decodeBrowserSession)
+}
+export function refreshBrowserSession(csrfToken: string): Promise<BrowserSessionResponse> {
+  return publicCoreRequest<unknown>('POST', `${browserSessionPath}/refresh`, { headers: { 'X-CSRF-Token': csrfToken } }).then(decodeBrowserSession)
+}
+export async function logoutBrowserSession(csrfToken: string | null): Promise<void> {
+  await publicCoreRequest('DELETE', browserSessionPath, { headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : undefined })
+}
+export function browserSessionContext(value: BrowserSessionResponse): AuthSessionContext {
+  return {
+    site_key: value.authority.site_key, site_uuid: null, identity: value.authority.actor,
+    roles: [...value.authority.roles], permissions: [...value.authority.permissions],
+    session_started_at: value.authority.session_started_at, session_expires_at: value.authority.absolute_expires_at,
+    idle_expires_at: value.authority.idle_expires_at,
   }
 }
-
-export const authApi = new AuthApi()
+function object(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === 'object' && !Array.isArray(value) }
+function strings(value: unknown, maximum: number): value is string[] {
+  return Array.isArray(value) && value.length <= maximum && value.every(item => typeof item === 'string' && item.length > 0 && item.length <= 256)
+}
+function instant(value: unknown): value is string { return typeof value === 'string' && Number.isFinite(Date.parse(value)) }
+export function decodeBrowserSession(value: unknown): BrowserSessionResponse {
+  if (!object(value) || !object(value.authority) || !object(value.authority.actor)) throw new Error('Invalid browser session response')
+  const authority = value.authority, actor = authority.actor as Record<string, unknown>
+  if (typeof value.access_token !== 'string' || value.access_token.length < 32 || value.access_token.length > 8192 ||
+      value.token_type !== 'bearer' || typeof value.csrf_token !== 'string' || !/^[A-Za-z0-9_-]{32,256}$/.test(value.csrf_token) ||
+      !instant(value.issued_at) || !instant(value.expires_at) || !Number.isInteger(value.expires_in_seconds) ||
+      (value.expires_in_seconds as number) < 1 || (value.expires_in_seconds as number) > 300 ||
+      authority.site_key !== authConfig.siteId || !strings(authority.roles, 32) || !strings(authority.permissions, 128) ||
+      !instant(authority.session_started_at) || !instant(authority.absolute_expires_at) || !instant(authority.idle_expires_at) ||
+      typeof actor.id !== 'string' || !actor.id || typeof actor.email !== 'string' || !actor.email.includes('@') ||
+      typeof actor.provider !== 'string' || !actor.provider || (actor.full_name !== null && typeof actor.full_name !== 'string') ||
+      (actor.avatar_url !== null && typeof actor.avatar_url !== 'string')) throw new Error('Invalid browser session response')
+  const issued = Date.parse(value.issued_at), expires = Date.parse(value.expires_at)
+  if (expires <= issued || expires > Math.min(Date.parse(authority.absolute_expires_at as string), Date.parse(authority.idle_expires_at as string))) throw new Error('Invalid browser session response')
+  return value as BrowserSessionResponse
+}

@@ -1,5 +1,6 @@
 import axios, { AxiosError, type AxiosInstance, type AxiosResponse, type CreateAxiosDefaults } from 'axios';
 import { publicConfig } from '../config/index';
+import { credentialSnapshot } from '../auth/credential-store';
 
 // Browser URLs are always same-origin, including public and shared-auth requests.
 export const STELLINA_API_URL = `${publicConfig.apiBaseUrl}/${publicConfig.manifest.api.productNamespace}`;
@@ -103,7 +104,7 @@ export function normalizeApiError(error: unknown): never {
   // Existing screens consume response.data.detail; keep it a safe renderable string.
   // Keep Axios identity, status, headers, config and the no-response network distinction.
   if (response) response.data = { detail: message, ...(requestId ? { request_id: requestId } : {}), ...(validation.length ? { validation_errors: validation } : {}) };
-  Object.assign(error, { requestId, validationErrors: validation });
+  Object.assign(error, { requestId, correlationId: requestId, status: status ?? 0, errorClass: status === 401 ? 'AuthenticationRequired' : status === 403 ? 'AuthorizationDenied' : status && status >= 500 ? 'ServiceUnavailable' : response ? 'RequestRejected' : 'UpstreamConnectionError', validationErrors: validation });
   throw error;
 }
 
@@ -134,18 +135,11 @@ export function getApiErrorMessage(error: unknown, fallback: string): string {
 const AUTH_VISIT_KEY = 'unoventi.auth-visit-id';
 
 function browserVisitId(): string {
-  const existing = localStorage.getItem(AUTH_VISIT_KEY);
-  if (existing) return existing;
-  const created = crypto.randomUUID();
-  localStorage.setItem(AUTH_VISIT_KEY, created);
-  return created;
-}
-
-function rejectAuthentication(): void {
-  localStorage.removeItem('access_token');
-  localStorage.removeItem('user');
-  if (typeof window === 'undefined' || ['/login', '/auth/callback'].includes(window.location.pathname)) return;
-  window.location.href = '/login';
+  try {
+    const existing = sessionStorage.getItem(AUTH_VISIT_KEY);
+    if (existing) return existing;
+    const created = crypto.randomUUID(); sessionStorage.setItem(AUTH_VISIT_KEY, created); return created;
+  } catch { return crypto.randomUUID(); }
 }
 
 // Public requests receive only bounded routing/correlation metadata. They never
@@ -161,7 +155,9 @@ publicApiClient.interceptors.request.use((config) => {
 export function createProtectedApiClient(baseURL: typeof STELLINA_API_URL | typeof CORE_API_URL): AxiosInstance {
   const client = createApiClient({ baseURL, headers: { 'Content-Type': 'application/json' } });
   client.interceptors.request.use((config) => {
-    const token = localStorage.getItem('access_token');
+    const credential = credentialSnapshot();
+    const token = credential.accessToken;
+    Object.assign(config, { credentialGeneration: credential.generation });
     config.headers.set('X-Unoventi-Site-Id', publicConfig.manifest.auth.siteKey);
     config.headers.set('X-Unoventi-Visit-Id', browserVisitId());
     if (!config.headers.has('X-Correlation-Id')) config.headers.set('X-Correlation-Id', crypto.randomUUID());
@@ -169,7 +165,10 @@ export function createProtectedApiClient(baseURL: typeof STELLINA_API_URL | type
     return config;
   });
   client.interceptors.response.use(response => response, (error) => {
-    if (axios.isAxiosError(error) && error.response?.status === 401) rejectAuthentication();
+    if (axios.isAxiosError(error) && error.response?.status === 401 && typeof window !== 'undefined') {
+      const generation = Number((error.config as typeof error.config & { credentialGeneration?: number })?.credentialGeneration);
+      if (Number.isInteger(generation)) window.dispatchEvent(new CustomEvent('unoventi:auth-rejected', { detail: { generation } }));
+    }
     return Promise.reject(error);
   });
   return client;

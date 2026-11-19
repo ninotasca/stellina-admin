@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { useAuth } from '../../platform/auth/AuthContext';
+import { useAuth } from '../../platform/auth/auth-context';
 import { commissionApi } from '../commissions';
 import { formatWholeDollars, formatWholeDollarsCompact } from '../../platform/ui/currency';
 import { parseLocalDate } from '../../platform/ui/date';

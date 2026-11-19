@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../platform/auth/AuthContext';
+import { useAuth } from '../../platform/auth/auth-context';
 import { BrandMark } from '../authentication';
 
 interface NavItem {

@@ -1,0 +1,162 @@
+{
+  "endpoint": "GET /api/v1/core/auth/config/{site_key}",
+  "schemas": {
+    "AuthPolicyUpdate": {
+      "properties": {
+        "change_context": {
+          "default": "Administrative authentication policy update",
+          "maxLength": 500,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Change Context",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "magic_login": {
+          "default": false,
+          "title": "Magic Login",
+          "type": "boolean"
+        },
+        "password_reset": {
+          "default": true,
+          "title": "Password Reset",
+          "type": "boolean"
+        },
+        "providers": {
+          "items": {
+            "enum": [
+              "email",
+              "google"
+            ],
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "title": "Providers",
+          "type": "array"
+        },
+        "registration": {
+          "enum": [
+            "open",
+            "closed"
+          ],
+          "title": "Registration",
+          "type": "string"
+        },
+        "session_inactivity_minutes": {
+          "maximum": 43200,
+          "minimum": 5,
+          "title": "Session Inactivity Minutes",
+          "type": "integer"
+        },
+        "session_max_age_minutes": {
+          "maximum": 43200,
+          "minimum": 5,
+          "title": "Session Max Age Minutes",
+          "type": "integer"
+        },
+        "session_resume_after_minutes": {
+          "maximum": 10080,
+          "minimum": 5,
+          "title": "Session Resume After Minutes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "enabled",
+        "providers",
+        "registration",
+        "session_max_age_minutes",
+        "session_inactivity_minutes",
+        "session_resume_after_minutes"
+      ],
+      "title": "AuthPolicyUpdate",
+      "type": "object"
+    },
+    "PublicAuthConfig": {
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "magic_login": {
+          "default": false,
+          "title": "Magic Login",
+          "type": "boolean"
+        },
+        "password_reset": {
+          "title": "Password Reset",
+          "type": "boolean"
+        },
+        "providers": {
+          "items": {
+            "enum": [
+              "email",
+              "google"
+            ],
+            "type": "string"
+          },
+          "title": "Providers",
+          "type": "array"
+        },
+        "registration": {
+          "enum": [
+            "open",
+            "closed"
+          ],
+          "title": "Registration",
+          "type": "string"
+        },
+        "session_inactivity_minutes": {
+          "title": "Session Inactivity Minutes",
+          "type": "integer"
+        },
+        "session_max_age_minutes": {
+          "title": "Session Max Age Minutes",
+          "type": "integer"
+        },
+        "session_resume_after_minutes": {
+          "title": "Session Resume After Minutes",
+          "type": "integer"
+        },
+        "site_key": {
+          "title": "Site Key",
+          "type": "string"
+        },
+        "site_uuid": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Site Uuid"
+        }
+      },
+      "required": [
+        "site_key",
+        "enabled",
+        "providers",
+        "registration",
+        "password_reset",
+        "session_max_age_minutes",
+        "session_inactivity_minutes",
+        "session_resume_after_minutes"
+      ],
+      "title": "PublicAuthConfig",
+      "type": "object"
+    }
+  },
+  "sources": {
+    "app/modules/core/routes/auth_routes.py": "36bc9957b257fb210de8528ec450eda5c6ae8e0e1ced30793ad184534664ff7e",
+    "app/modules/core/schemas/supabase_auth.py": "5342b0caacd5451f5ae2ae73a32a1d2a784fcc96852caf7beac3dceae2f37442"
+  }
+}
+

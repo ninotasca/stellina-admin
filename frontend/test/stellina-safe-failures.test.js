@@ -16,6 +16,7 @@ globalThis.localStorage = {
   removeItem: key => store.delete(key),
 }
 globalThis.window = { location: { href: '/commissions/booking', pathname: '/commissions/booking' } }
+globalThis.sessionStorage = { getItem: () => null, setItem() {}, removeItem() {} }
 axios.defaults.adapter = async config => {
   calls.push(config)
   const response = { ...reply, statusText: '', config }
@@ -24,6 +25,8 @@ axios.defaults.adapter = async config => {
 }
 const { cventTrackerApi } = await import('../src/features/cvent/api.ts')
 const { createApiClient, getApiErrorMessage } = await import('../src/platform/http/index.ts')
+const { credentialSnapshot, installCredential } = await import('../src/platform/auth/credential-store.ts')
+installCredential('synthetic-session', 'c'.repeat(32), '2099-01-01T00:00:00.000Z')
 const safeMessage = 'The Stellina data service is unavailable. Please try again.'
 
 test('consumer uses the same versioned schema as the API', () => {
@@ -54,7 +57,7 @@ for (const operation of contract.operations) {
         return true
       })
       assert.equal(calls.length, 1, 'no automatic retry of a potentially partial upload')
-      assert.equal(store.get('access_token'), 'synthetic-session')
+      assert.equal(credentialSnapshot().accessToken, 'synthetic-session')
       assert.equal(globalThis.window.location.href, '/commissions/booking')
     })
   }

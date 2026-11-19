@@ -1,7 +1,7 @@
 import { getApiErrorMessage } from '../../platform/http/index';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../platform/auth/AuthContext';
+import { useAuth } from '../../platform/auth/auth-context';
 import { administrationApi } from './api';
 import type { AllowedGoogleAccount, LoginAttempt } from '../../domain/auth';
 
