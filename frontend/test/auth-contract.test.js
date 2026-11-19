@@ -41,3 +41,12 @@ test('Stellina decoder accepts the shared canonical response surface and duratio
     for (const value of [bounds.minimum - 1, bounds.maximum + 1, bounds.minimum + 0.5]) assert.throws(() => parseAuthPolicy({ ...validPolicy, [key]: value }, 'stellina'))
   }
 })
+
+test('Google PKCE keeps its verifier in tab storage across the provider redirect', () => {
+  const source = readFileSync(new URL('../src/platform/auth/supabase.ts', import.meta.url), 'utf8')
+  assert.match(source, /flowType:\s*'pkce'/)
+  assert.match(source, /persistSession:\s*true/)
+  assert.match(source, /storage:\s*oauthRedirectStorage/)
+  assert.match(source, /sessionStorage\.setItem/)
+  assert.doesNotMatch(source, /persistSession:\s*false/)
+})

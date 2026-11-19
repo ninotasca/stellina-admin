@@ -40,11 +40,14 @@ test('generation guards prevent stale 401s from clearing a newer in-memory crede
   assert.equal(credentialSnapshot().accessToken, null)
 })
 
-test('provider SDK and portable provider forbid persistent auth storage', () => {
+test('provider SDK retains only redirect-scoped PKCE state and clears it after exchange', () => {
   const supabase = readFileSync(new URL('../src/platform/auth/supabase.ts', import.meta.url), 'utf8')
   const provider = readFileSync(new URL('../src/platform/auth/AuthProvider.tsx', import.meta.url), 'utf8')
   const transport = readFileSync(new URL('../src/platform/http/index.ts', import.meta.url), 'utf8')
-  assert.match(supabase, /persistSession:\s*false/)
+  assert.match(supabase, /persistSession:\s*true/)
+  assert.match(supabase, /storage:\s*oauthRedirectStorage/)
+  assert.match(supabase, /sessionStorage\.setItem/)
+  assert.match(supabase, /signOut\(\{ scope: 'local' \}\)/)
   assert.match(supabase, /autoRefreshToken:\s*false/)
   assert.doesNotMatch(provider + transport, /localStorage/)
   assert.doesNotMatch(provider, /getSession\(/)
