@@ -1,9 +1,5 @@
-import { CORE_API_URL, STELLINA_API_URL } from '../../platform/http/index'
-import { createLegacyProtectedClient } from '../../platform/auth/api'
+import { coreProtectedApiClient as coreClient, stellinaProtectedApiClient as stellinaClient } from '../../platform/http/index'
 import type { AllowedGoogleAccount, LoginAttempt } from '../../domain/auth'
-
-const coreClient = createLegacyProtectedClient(CORE_API_URL)
-const stellinaClient = createLegacyProtectedClient(STELLINA_API_URL)
 
 export const administrationApi = {
   async getLoginAttempts(limit = 100, cursor?: string): Promise<LoginAttempt[]> {

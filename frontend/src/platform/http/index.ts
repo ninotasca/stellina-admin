@@ -131,5 +131,49 @@ export function getApiErrorMessage(error: unknown, fallback: string): string {
   return axios.isAxiosError(error) && !axios.isCancel(error) ? error.message : fallback;
 }
 
-// Public requests deliberately have no bearer-token interceptor or login redirect.
+const AUTH_VISIT_KEY = 'unoventi.auth-visit-id';
+
+function browserVisitId(): string {
+  const existing = localStorage.getItem(AUTH_VISIT_KEY);
+  if (existing) return existing;
+  const created = crypto.randomUUID();
+  localStorage.setItem(AUTH_VISIT_KEY, created);
+  return created;
+}
+
+function rejectAuthentication(): void {
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('user');
+  if (typeof window === 'undefined' || ['/login', '/auth/callback'].includes(window.location.pathname)) return;
+  window.location.href = '/login';
+}
+
+// Public requests receive only bounded routing/correlation metadata. They never
+// read credentials and never install authentication rejection behavior.
 export const publicApiClient = createApiClient();
+publicApiClient.interceptors.request.use((config) => {
+  config.headers.set('X-Unoventi-Site-Id', publicConfig.manifest.auth.siteKey);
+  config.headers.set('X-Unoventi-Visit-Id', browserVisitId());
+  if (!config.headers.has('X-Correlation-Id')) config.headers.set('X-Correlation-Id', crypto.randomUUID());
+  return config;
+});
+
+export function createProtectedApiClient(baseURL: typeof STELLINA_API_URL | typeof CORE_API_URL): AxiosInstance {
+  const client = createApiClient({ baseURL, headers: { 'Content-Type': 'application/json' } });
+  client.interceptors.request.use((config) => {
+    const token = localStorage.getItem('access_token');
+    config.headers.set('X-Unoventi-Site-Id', publicConfig.manifest.auth.siteKey);
+    config.headers.set('X-Unoventi-Visit-Id', browserVisitId());
+    if (!config.headers.has('X-Correlation-Id')) config.headers.set('X-Correlation-Id', crypto.randomUUID());
+    if (token) config.headers.set('Authorization', `Bearer ${token}`);
+    return config;
+  });
+  client.interceptors.response.use(response => response, (error) => {
+    if (axios.isAxiosError(error) && error.response?.status === 401) rejectAuthentication();
+    return Promise.reject(error);
+  });
+  return client;
+}
+
+export const stellinaProtectedApiClient = createProtectedApiClient(STELLINA_API_URL);
+export const coreProtectedApiClient = createProtectedApiClient(CORE_API_URL);

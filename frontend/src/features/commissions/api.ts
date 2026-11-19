@@ -1,4 +1,4 @@
-import { createApiClient, STELLINA_API_URL } from '../../platform/http/index';
+import { stellinaProtectedApiClient } from '../../platform/http/index';
 import type {
   CommissionEvent,
   CommissionEventCreate,
@@ -19,19 +19,11 @@ import type {
 } from './types';
 import { publicConfig } from '../../platform/config/index';
 
-const API_BASE_URL = STELLINA_API_URL;
 const INCLUDE_TEST_BOOKINGS = publicConfig.switches.includeTestBookings;
-
-const getAuthToken = () => localStorage.getItem('access_token');
 
 const testBookingParams = () => (INCLUDE_TEST_BOOKINGS ? { include_test_bookings: true } : undefined);
 
-const apiClient = createApiClient({ baseURL: API_BASE_URL });
-apiClient.interceptors.request.use((config) => {
-  const token = getAuthToken();
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
+const apiClient = stellinaProtectedApiClient;
 
 export interface ProjectionParams {
   grouping?: 'quarter' | 'month' | 'year';

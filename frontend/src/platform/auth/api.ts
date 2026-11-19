@@ -1,11 +1,9 @@
-import type { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios'
-import { createApiClient, CORE_API_URL } from '../http/index'
+import { coreProtectedApiClient } from '../http/index'
 import type { GoogleAuthRequest, LogoutResponse, TokenResponse, User } from '../../domain/auth'
 import { publicConfig } from '../config/index'
 
 const SITE_ID = publicConfig.siteId
 export const AUTH_SITE_KEY = publicConfig.manifest.auth.siteKey
-const AUTH_VISIT_KEY = 'unoventi.auth-visit-id'
 
 export interface PublicAuthConfig {
   enabled: boolean
@@ -15,37 +13,8 @@ export interface PublicAuthConfig {
   magic_login: boolean
 }
 
-function browserId(key: string) {
-  const existing = localStorage.getItem(key)
-  if (existing) return existing
-  const created = crypto.randomUUID()
-  localStorage.setItem(key, created)
-  return created
-}
-
-export function createLegacyProtectedClient(baseURL: string): AxiosInstance {
-  const client = createApiClient({ baseURL, headers: { 'Content-Type': 'application/json' } })
-  client.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-    const token = localStorage.getItem('access_token')
-    config.headers['X-Unoventi-Site-Id'] = AUTH_SITE_KEY
-    config.headers['X-Unoventi-Visit-Id'] = browserId(AUTH_VISIT_KEY)
-    config.headers['X-Correlation-Id'] = crypto.randomUUID()
-    if (token) config.headers.Authorization = `Bearer ${token}`
-    return config
-  })
-  client.interceptors.response.use(response => response, (error: AxiosError) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('access_token')
-      localStorage.removeItem('user')
-      if (!['/login', '/auth/callback'].includes(window.location.pathname)) window.location.href = '/login'
-    }
-    return Promise.reject(error)
-  })
-  return client
-}
-
 class AuthApi {
-  private readonly coreClient = createLegacyProtectedClient(CORE_API_URL)
+  private readonly coreClient = coreProtectedApiClient
 
   async healthCheck(): Promise<{ status: string; message: string }> {
     return (await this.coreClient.get('/health/stellina')).data

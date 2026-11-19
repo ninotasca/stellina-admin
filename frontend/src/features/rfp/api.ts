@@ -1,4 +1,4 @@
-import { createApiClient, STELLINA_API_URL, publicApiClient } from '../../platform/http/index';
+import { STELLINA_API_URL, publicApiClient, stellinaProtectedApiClient as apiClient } from '../../platform/http/index';
 import type {
   CustomQuestion,
   CustomQuestionCreate,
@@ -20,20 +20,6 @@ import type {
 } from './types';
 
 const API_BASE_URL = STELLINA_API_URL;
-
-const getAuthToken = () => localStorage.getItem('access_token');
-
-const apiClient = createApiClient({
-  baseURL: API_BASE_URL,
-});
-
-apiClient.interceptors.request.use((config) => {
-  const token = getAuthToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
 
 // RFP APIs (Admin) — RFPs are anchored to a commission_event.
 export const rfpApi = {

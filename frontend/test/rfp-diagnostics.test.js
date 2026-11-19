@@ -79,7 +79,11 @@ async function probe(mod, page, { status = 401, stage = 'rfp', edit = false, con
     params: page === 'RFPForm' ? (edit ? { id: rfp.id } : { eventId: event.id }) : { rfpId: rfp.id }, saving: false }
   globalThis.__rfpFixture = f
   Object.defineProperty(globalThis, 'localStorage', {
-    configurable: true, writable: true, value: { getItem: () => canary },
+    configurable: true, writable: true, value: {
+      getItem: key => key === 'access_token' ? canary : null,
+      setItem() {},
+      removeItem() {},
+    },
   })
   f.adapter = async config => {
     requests.push(config)

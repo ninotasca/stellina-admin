@@ -143,6 +143,9 @@ test('all private clients use same-origin paths and preserve bearer tokens', asy
   assert.equal(calls.at(-1).baseURL, '/api/v1/core')
   assert.equal(calls.at(-1).url, '/health/stellina')
   assert.equal(calls.at(-1).headers.Authorization, 'Bearer private-token')
+  assert.equal(calls.at(-1).headers['X-Unoventi-Site-Id'], 'stellina')
+  assert.match(calls.at(-1).headers['X-Unoventi-Visit-Id'], /^[0-9a-f-]{36}$/)
+  assert.match(calls.at(-1).headers['X-Correlation-Id'], /^[0-9a-f-]{36}$/)
 
   const methods = [() => commissionApi.projections({ statuses: ['definite', 'prospect'] }),
     () => cventTrackerApi.listAll(), () => rfpApi.listRFPs(), () => siteSelectionApi.listForms(), () => nimbleApi.listDeals()]
@@ -150,6 +153,8 @@ test('all private clients use same-origin paths and preserve bearer tokens', asy
     await method()
     assert.equal(calls.at(-1).baseURL, '/api/v1/stellina')
     assert.equal(calls.at(-1).headers.Authorization, 'Bearer private-token')
+    assert.equal(calls.at(-1).headers['X-Unoventi-Site-Id'], 'stellina')
+    assert.match(calls.at(-1).headers['X-Correlation-Id'], /^[0-9a-f-]{36}$/)
   }
   assert.match(calls[1].url, /statuses=definite&statuses=prospect/)
 })
@@ -160,6 +165,8 @@ test('public forms never gain bearer auth or 401 login redirects', async () => {
     await method()
     assert.match(calls.at(-1).url, /^\/api\/v1\/stellina\//)
     assert.equal(calls.at(-1).headers.Authorization, undefined)
+    assert.equal(calls.at(-1).headers['X-Unoventi-Site-Id'], 'stellina')
+    assert.match(calls.at(-1).headers['X-Correlation-Id'], /^[0-9a-f-]{36}$/)
   }
   reply = { status: 401, data: '{}' }
   await assert.rejects(publicApiClient.get('/api/v1/stellina/public'))
@@ -197,12 +204,14 @@ test('401 on an auth route clears app state without reloading the login page', a
   assert.equal(store.has('user'), false)
 })
 
-test('other existing private clients do not gain a 401 redirect', async () => {
+test('all protected clients converge on bounded 401 cleanup and redirect', async () => {
   store.set('access_token', 'private-token')
+  store.set('user', '{}')
   reply = { status: 401, data: '{}' }
   await assert.rejects(commissionApi.listEvents())
-  assert.equal(globalThis.window.location.href, '/dashboard')
-  assert.equal(store.get('access_token'), 'private-token')
+  assert.equal(globalThis.window.location.href, '/login')
+  assert.equal(store.has('access_token'), false)
+  assert.equal(store.has('user'), false)
 })
 
 test('multipart uploads preserve FormData, paths and no retry', async () => {

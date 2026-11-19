@@ -1,13 +1,4 @@
-import { createApiClient, STELLINA_API_URL } from '../../platform/http/index';
-
-const API_BASE_URL = STELLINA_API_URL;
-
-const apiClient = createApiClient({ baseURL: API_BASE_URL });
-apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('access_token');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
+import { stellinaProtectedApiClient as apiClient } from '../../platform/http/index';
 
 export type CventUploadSource = 'cvent' | 'master';
 

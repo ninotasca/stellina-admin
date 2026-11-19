@@ -10,8 +10,12 @@ const contract = JSON.parse(readFileSync(contractUrl, 'utf8'))
 let reply
 let calls = []
 const store = new Map([['access_token', 'synthetic-session']])
-globalThis.localStorage = { getItem: key => store.get(key) ?? null }
-globalThis.window = { location: { href: '/commissions/booking' } }
+globalThis.localStorage = {
+  getItem: key => store.get(key) ?? null,
+  setItem: (key, value) => store.set(key, value),
+  removeItem: key => store.delete(key),
+}
+globalThis.window = { location: { href: '/commissions/booking', pathname: '/commissions/booking' } }
 axios.defaults.adapter = async config => {
   calls.push(config)
   const response = { ...reply, statusText: '', config }
