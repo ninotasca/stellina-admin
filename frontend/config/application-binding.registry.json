@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "registryRevision": "nin-370-stellina-binding-v1",
+  "authority": "ninotasca/unoventi-governance:architecture/vite-site-architecture/APPLICATION_MANIFEST.md",
+  "applications": {
+    "stellina-admin": {
+      "applicationId": "stellina-admin",
+      "siteKey": "stellina",
+      "siteId": "d38ebee3-f29d-42ac-ae53-5d20d1bf7fde",
+      "productNamespace": "stellina",
+      "coreCapabilities": ["auth"],
+      "assets": ["/brand/stellina-logo-black.png"],
+      "routes": ["/dashboard"],
+      "deployments": {
+        "development": { "apiOrigins": [], "supabaseUrl": "https://qcpklgptamrrlmqrhfmt.supabase.co" },
+        "staging": { "apiOrigins": [], "supabaseUrl": "https://qcpklgptamrrlmqrhfmt.supabase.co" },
+        "production": { "apiOrigins": [], "supabaseUrl": "https://qcpklgptamrrlmqrhfmt.supabase.co" }
+      }
+    }
+  }
+}

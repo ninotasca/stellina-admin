@@ -1,9 +1,10 @@
 import type { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios'
 import { createApiClient, CORE_API_URL } from '../http/index'
 import type { GoogleAuthRequest, LogoutResponse, TokenResponse, User } from '../../domain/auth'
+import { publicConfig } from '../config/index'
 
-const SITE_ID = import.meta.env.VITE_SITE_ID
-export const AUTH_SITE_KEY = 'stellina'
+const SITE_ID = publicConfig.siteId
+export const AUTH_SITE_KEY = publicConfig.manifest.auth.siteKey
 const AUTH_VISIT_KEY = 'unoventi.auth-visit-id'
 
 export interface PublicAuthConfig {

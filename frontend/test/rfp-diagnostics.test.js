@@ -12,6 +12,11 @@ const pages = { RFPForm: 'save_failed', HotelInvitations: 'invitations_load_fail
 async function compile(page, contained = false, unsafe = false) {
   const output = await build({
     root, configFile: false, mode: 'production', logLevel: 'silent',
+    define: { __STELLINA_PUBLIC_CONFIG__: JSON.stringify({
+      manifest: { applicationId: 'stellina-admin', api: { productNamespace: 'stellina' }, auth: { siteKey: 'stellina' } },
+      environment: 'production', clientLogLevel: 'error', apiBaseUrl: '/api/v1',
+      switches: { includeTestBookings: false },
+    }) },
     esbuild: { jsx: 'transform' },
     plugins: [{
       name: 'rfp-page-fixture', enforce: 'pre',

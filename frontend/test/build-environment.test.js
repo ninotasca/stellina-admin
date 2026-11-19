@@ -55,10 +55,11 @@ test('actual builds use selected files and browser diagnostics despite conflicti
       'RAILWAY_SERVICE_ID', 'RAILWAY_DEPLOYMENT_ID', 'VITE_CLIENT_LOG_LEVEL', 'VITE_ENABLE_TEST_BOOKINGS',
       'STELLINA_API_PROXY_TARGET']) delete process.env[key]
     // A wrong file load must fail; production has its own valid logging setting.
-    writeFileSync(join(root, '.env.development'), 'VITE_CLIENT_LOG_LEVEL=INVALID\nVITE_ENABLE_TEST_BOOKINGS=true\n')
-    writeFileSync(join(root, '.env.production'), 'VITE_CLIENT_LOG_LEVEL=ERROR\nVITE_ENABLE_TEST_BOOKINGS=false\nSTELLINA_API_PROXY_TARGET=http://production.example\n')
+    const publicValues = 'VITE_SUPABASE_URL=https://qcpklgptamrrlmqrhfmt.supabase.co\nVITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_test_fixture_key_1234567890\n'
+    writeFileSync(join(root, '.env.development'), publicValues + 'VITE_CLIENT_LOG_LEVEL=INVALID\nVITE_ENABLE_TEST_BOOKINGS=true\n')
+    writeFileSync(join(root, '.env.production'), publicValues + 'VITE_CLIENT_LOG_LEVEL=ERROR\nVITE_ENABLE_TEST_BOOKINGS=false\nSTELLINA_API_PROXY_TARGET=http://production.example\n')
     const probe = join(root, 'probe.js')
-    writeFileSync(probe, `export { clientLog } from ${JSON.stringify(entry)}; export const env = import.meta.env;`)
+    writeFileSync(probe, `export { clientLog } from ${JSON.stringify(entry)}; export { publicConfig } from ${JSON.stringify(fileURLToPath(new URL('../src/platform/config/index.ts', import.meta.url)))};`)
     process.env.VERCEL_GIT_COMMIT_SHA = '1234567'
     process.chdir(root)
     for (const selector of ['ENVIRONMENT_NAME', 'RAILWAY_ENVIRONMENT_NAME', 'VERCEL_ENV']) {
@@ -71,10 +72,10 @@ test('actual builds use selected files and browser diagnostics despite conflicti
       })
       assert.equal(resolved.server.proxy['^/api/v1/(stellina|core)(/|$)'].target, 'http://production.example')
       const code = (Array.isArray(output) ? output : [output]).flatMap(bundle => bundle.output).find(item => item.type === 'chunk').code
-      const { clientLog, env } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))
-      assert.equal(env.MODE, 'production')
-      assert.equal(env.VITE_ENABLE_TEST_BOOKINGS, 'false')
-      assert.equal(env.STELLINA_API_PROXY_TARGET, undefined)
+      const { clientLog, publicConfig } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))
+      assert.equal(publicConfig.environment, 'production')
+      assert.equal(publicConfig.switches.includeTestBookings, false)
+      assert.equal(publicConfig.manifest.api.productNamespace, 'stellina')
       const events = []
       try {
         for (const level of Object.keys(sinks)) console[level] = line => events.push(JSON.parse(line))

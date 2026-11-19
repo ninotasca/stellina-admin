@@ -1,60 +1,57 @@
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+import { resolveBuildEnvironment } from './build/environment.js'
+import { decodePublicConfig, selectPublicValues } from './build/public-config.js'
+
+export { resolveBuildEnvironment } from './build/environment.js'
+
+const frontendRoot = dirname(fileURLToPath(import.meta.url))
+const manifestPath = resolve(frontendRoot, 'src/app/application-manifest.json')
+const registryPath = resolve(frontendRoot, 'config/application-binding.registry.json')
+const digestPath = resolve(frontendRoot, 'config/application-binding.registry.sha256')
+
+function readPinnedConfiguration() {
+  const registrySource = readFileSync(registryPath)
+  const actual = createHash('sha256').update(registrySource).digest('hex')
+  const expected = readFileSync(digestPath, 'utf8').trim()
+  if (actual !== expected) throw new Error('Application binding registry digest mismatch')
+  return { manifest: JSON.parse(readFileSync(manifestPath, 'utf8')), registry: JSON.parse(registrySource.toString('utf8')) }
+}
 
 function buildVersion() {
   const deployed = process.env.VERCEL_GIT_COMMIT_SHA?.trim()
   if (deployed && /^[0-9a-f]{7,40}$/i.test(deployed)) return deployed.slice(0, 7).toLowerCase()
   try {
-    const commit = execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], { encoding: 'utf8' }).trim().toLowerCase()
-    const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }).trim()
+    const commit = execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim().toLowerCase()
+    const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
     return `${commit}${dirty ? '-dirty' : ''}`
-  } catch {
-    return 'development'
-  }
+  } catch { return 'development' }
 }
 
-// Deployment selectors are process inputs: resolve them before reading any .env file.
-export function resolveBuildEnvironment(mode: string | undefined, values = process.env) {
-  const selected = [values.ENVIRONMENT_NAME, values.RAILWAY_ENVIRONMENT_NAME, values.VERCEL_ENV, mode]
-    .find(value => value?.trim())
-  if (selected === undefined && (values.VERCEL || values.RAILWAY_SERVICE_ID || values.RAILWAY_DEPLOYMENT_ID)) {
-    throw new Error('Hosted environment must be identified')
-  }
-  const aliases: Record<string, string> = {
-    local: 'development', dev: 'development', development: 'development', test: 'development',
-    stage: 'staging', staging: 'staging', preview: 'staging', prod: 'production', production: 'production',
-  }
-  const key = (selected ?? 'development').trim().toLowerCase()
-  if (!Object.hasOwn(aliases, key)) throw new Error('Environment must be development, staging, or production')
-  return aliases[key]
-}
-
-export default defineConfig(({ mode }) => {
-  const environment = resolveBuildEnvironment(mode)
+export default defineConfig(({ mode, command }) => {
+  const environment = resolveBuildEnvironment(mode, process.env, command)
+  process.env.NODE_ENV = environment === 'development' ? 'development' : 'production'
   const env = loadEnv(environment, process.cwd(), '')
-  const raw = process.env.VITE_CLIENT_LOG_LEVEL ?? env.VITE_CLIENT_LOG_LEVEL
-  const level = raw === undefined ? (environment === 'development' ? 'DEBUG' : environment === 'staging' ? 'WARN' : 'ERROR') : raw.trim().toUpperCase()
-  if (!['DEBUG', 'INFO', 'WARN', 'ERROR'].includes(level)) {
-    throw new Error('VITE_CLIENT_LOG_LEVEL must be DEBUG, INFO, WARN, or ERROR')
-  }
+  delete process.env.VITE_USER_NODE_ENV
+  const { manifest, registry } = readPinnedConfiguration()
+  const decoded = decodePublicConfig(manifest, selectPublicValues(env), environment, registry)
+  if (!decoded.ok) throw new Error(`Application configuration unavailable (${decoded.code})`)
+  const publicConfig = { ...decoded.value, buildVersion: buildVersion() }
   const target = process.env.STELLINA_API_PROXY_TARGET || env.STELLINA_API_PROXY_TARGET || 'http://127.0.0.1:3301'
-  const proxy = {
-    '^/api/v1/(stellina|core)(/|$)': { target, changeOrigin: true },
-  }
-  // Vite forwards directly to the backend. Vercel runs the selected logging Functions.
+  const proxy = { '^/api/v1/(stellina|core)(/|$)': { target, changeOrigin: true } }
   return {
     mode: environment,
-    // Vite's CLI --mode takes precedence over config.mode. Disable its second
-    // env-file load so a conflicting CLI mode cannot reintroduce development values.
     envDir: false,
     define: {
-      ...Object.fromEntries(Object.entries(env)
-        .filter(([key]) => key.startsWith('VITE_'))
-        .map(([key, value]) => [`import.meta.env.${key}`, JSON.stringify(value)])),
       'import.meta.env.MODE': JSON.stringify(environment),
-      'import.meta.env.VITE_APP_VERSION': JSON.stringify(buildVersion()),
-      'import.meta.env.VITE_CLIENT_LOG_LEVEL': JSON.stringify(level),
+      'import.meta.env.DEV': JSON.stringify(environment === 'development'),
+      'import.meta.env.PROD': JSON.stringify(environment !== 'development'),
+      __STELLINA_PUBLIC_CONFIG__: JSON.stringify(publicConfig),
     },
     plugins: [react()],
     server: { host: '127.0.0.1', port: 3401, strictPort: true, proxy },

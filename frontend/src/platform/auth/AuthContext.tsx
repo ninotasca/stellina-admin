@@ -4,8 +4,9 @@ import type { User } from '../../domain/auth';
 import { authApi, type PublicAuthConfig } from './api';
 import { supabase } from './supabase';
 import { clientLog } from '../diagnostics/index';
+import { publicConfig } from '../config/index';
 
-const MAGIC_LOGIN_FRONTEND_ENABLED = import.meta.env.VITE_AUTH_ENABLE_MAGIC_LOGIN === 'true';
+const MAGIC_LOGIN_FRONTEND_ENABLED = publicConfig.switches.enableMagicLoginUi;
 const SAFE_POLICY: PublicAuthConfig = {
   enabled: true,
   providers: [],

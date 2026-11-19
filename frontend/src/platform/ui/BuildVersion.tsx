@@ -1,9 +1,11 @@
-const VERSION = import.meta.env.VITE_APP_VERSION || 'development'
+import { publicConfig } from '../config/index'
 
 export default function BuildVersion() {
+  if (!publicConfig.switches.showBuildInfo) return null
+  const version = publicConfig.buildVersion
   return (
     <small
-      aria-label={`Build ${VERSION}`}
+      aria-label={`Build ${version}`}
       title="Git build version"
       style={{
         position: 'fixed', right: 8, bottom: 5, zIndex: 100,
@@ -12,7 +14,7 @@ export default function BuildVersion() {
         pointerEvents: 'none', userSelect: 'text',
       }}
     >
-      build {VERSION}
+      build {version}
     </small>
   )
 }

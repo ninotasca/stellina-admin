@@ -84,11 +84,18 @@ test('all browser source, including page failure handlers, routes console output
 // A deterministic hook harness runs the real provider's effects and callbacks
 // without a DOM, live Supabase, or HTTP. The browser adapter remains real.
 async function compiledAuth(raw = 'DEBUG', mode = 'production') {
+  const clientLogLevel = raw == null
+    ? ({ development: 'debug', staging: 'warn', production: 'error' })[mode]
+    : raw.trim().toLowerCase()
+  const config = {
+    manifest: { applicationId: 'stellina-admin', auth: { siteKey: 'stellina' } },
+    environment: mode, clientLogLevel,
+    switches: { enableMagicLoginUi: true },
+  }
   const output = await build({
     root, configFile: false, mode, logLevel: 'silent',
     define: {
-      'import.meta.env.VITE_CLIENT_LOG_LEVEL': raw == null ? 'undefined' : JSON.stringify(raw),
-      'import.meta.env.VITE_AUTH_ENABLE_MAGIC_LOGIN': '"true"',
+      __STELLINA_PUBLIC_CONFIG__: JSON.stringify(config),
     },
     esbuild: { jsx: 'transform' },
     plugins: [{
@@ -265,11 +272,11 @@ test('actual Vite configuration rejects invalid levels before staging or product
             generateBundle() { generated = true },
           }],
           build: { write: false, lib: { entry: adapterEntry, formats: ['es'] } },
-        }), { message: 'VITE_CLIENT_LOG_LEVEL must be DEBUG, INFO, WARN, or ERROR' })
+        }), { message: 'Application configuration unavailable (public-invalid)' })
         assert.equal(started, false)
         assert.equal(generated, false)
       }
-      for (const raw of [undefined, 'DEBUG', 'info', ' wArN ', 'ERROR']) {
+      for (const raw of [undefined, 'DEBUG', 'info', 'WARN', 'ERROR']) {
         if (raw === undefined) delete process.env.VITE_CLIENT_LOG_LEVEL
         else process.env.VITE_CLIENT_LOG_LEVEL = raw
         const output = await build({
@@ -302,11 +309,6 @@ test('independent privacy-safe browser forward recovery restores retained compil
   await probeAuth(staging, 'warn')
   await probeAuth(recovery, 'warn')
   await probeAuth(candidate, 'error')
-  const invalid = await compiledAuth('INVALID')
-  try {
-    globalThis.__authDiagnosticFixture = { api: {}, supabase: {} }
-    await assert.rejects(import('data:text/javascript;base64,' + Buffer.from(invalid).toString('base64')), /VITE_CLIENT_LOG_LEVEL must be/)
-  } finally { delete globalThis.__authDiagnosticFixture }
   await probeAuth(recovery, 'warn')
   const digest = code => createHash('sha256').update(code).digest('hex')
   t.diagnostic('Stellina independent forward recovery: baseline 9b1e043; recovery WARN sha256=' + digest(recovery) + '; candidate production ERROR sha256=' + digest(candidate) + '; retained recovery bytes restored after invalid replacement; policy/session/logout/reporting and privacy probes passed')

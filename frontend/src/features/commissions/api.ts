@@ -17,9 +17,10 @@ import type {
   ProjectionSummary,
   BookingStatus,
 } from './types';
+import { publicConfig } from '../../platform/config/index';
 
 const API_BASE_URL = STELLINA_API_URL;
-const INCLUDE_TEST_BOOKINGS = import.meta.env.VITE_ENABLE_TEST_BOOKINGS === 'true';
+const INCLUDE_TEST_BOOKINGS = publicConfig.switches.includeTestBookings;
 
 const getAuthToken = () => localStorage.getItem('access_token');
 

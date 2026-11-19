@@ -1,8 +1,9 @@
 import axios, { AxiosError, type AxiosInstance, type AxiosResponse, type CreateAxiosDefaults } from 'axios';
+import { publicConfig } from '../config/index';
 
 // Browser URLs are always same-origin, including public and shared-auth requests.
-export const STELLINA_API_URL = '/api/v1/stellina';
-export const CORE_API_URL = '/api/v1/core';
+export const STELLINA_API_URL = `${publicConfig.apiBaseUrl}/${publicConfig.manifest.api.productNamespace}`;
+export const CORE_API_URL = `${publicConfig.apiBaseUrl}/core`;
 const REQUEST_ID_HEADER = 'x-stellina-request-id';
 
 const SAFE_DETAILS = new Set([

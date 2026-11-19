@@ -173,7 +173,7 @@ test('shared OAuth payload, logout/auth paths and established 401 redirect are p
   await authApi.googleAuth('code-example', 'https://stellina.example/auth/callback')
   assert.equal(calls[0].baseURL, '/api/v1/core')
   assert.equal(calls[0].url, '/auth/google')
-  assert.deepEqual(JSON.parse(calls[0].data), { code: 'code-example', redirect_uri: 'https://stellina.example/auth/callback', site_id: 'test-site' })
+  assert.deepEqual(JSON.parse(calls[0].data), { code: 'code-example', redirect_uri: 'https://stellina.example/auth/callback', site_id: 'd38ebee3-f29d-42ac-ae53-5d20d1bf7fde' })
   await authApi.logout()
   assert.equal(calls.at(-1).url, '/auth/logout')
   reply = { status: 401, data: '<html>private-secret</html>' }

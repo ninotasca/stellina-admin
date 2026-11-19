@@ -1,3 +1,5 @@
+import { publicConfig } from '../config/index';
+
 export type ClientLogLevel = 'debug' | 'info' | 'warn' | 'error';
 const levels: Record<ClientLogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 };
 
@@ -15,7 +17,7 @@ export function resolveClientLogLevel(raw: string | undefined, mode: string): Cl
 }
 
 // Configuration validation intentionally remains outside the per-event failure guard.
-const minimumLevel = levels[resolveClientLogLevel(import.meta.env.VITE_CLIENT_LOG_LEVEL, import.meta.env.MODE)];
+const minimumLevel = levels[publicConfig.clientLogLevel];
 const messages = {
   'unoventi.auth.policy_loaded': 'Authentication policy loaded',
   'unoventi.auth.policy_failed': 'Authentication policy unavailable',
@@ -52,8 +54,9 @@ export function clientLog(level: ClientLogLevel, event: keyof typeof messages, f
     if (errorClass === 'AuthError' || errorClass === 'UnknownError' || errorClass === 'HttpError' || errorClass === 'NetworkError') safe.error_class = errorClass;
     const output = JSON.stringify({
       timestamp: new Date().toISOString(), level, message: messages[event],
-      service: 'stellina-admin-web', environment: import.meta.env.MODE,
-      component: event.startsWith('stellina.rfp.') ? 'rfp' : 'auth', event, site_key: 'stellina', ...safe,
+      service: `${publicConfig.manifest.applicationId}-web`, environment: publicConfig.environment,
+      component: event.startsWith('stellina.rfp.') ? 'rfp' : 'auth', event,
+      site_key: publicConfig.manifest.auth.siteKey, ...safe,
     });
     console[level](output);
   } catch { /* Browser diagnostics must never change a request outcome. */ }

@@ -1,5 +1,6 @@
 import { getApiErrorMessage } from '../../platform/http/index';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { publicConfig } from '../../platform/config/index';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { commissionApi } from './api';
 import { nimbleApi, type NimbleCompanyLite, type NimblePersonLite } from '../nimble';
@@ -19,7 +20,7 @@ import type {
   PaymentStatus,
 } from './types';
 
-const TEST_BOOKINGS_ENABLED = import.meta.env.VITE_ENABLE_TEST_BOOKINGS === 'true';
+const TEST_BOOKINGS_ENABLED = publicConfig.switches.includeTestBookings;
 
 // ---------- Booking status ----------
 
