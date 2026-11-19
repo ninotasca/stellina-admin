@@ -100,7 +100,7 @@ test('real browser client, proxy, and mock upstream share one reference on failu
   const backendRecords = []
   const proxyRecords = []
   const upstream = createHttpServer((req, res) => {
-    backendRecords.push({ request_id: req.headers['x-stellina-request-id'] })
+    backendRecords.push({ request_id: req.headers['x-stellina-request-id'], correlation_id: req.headers['x-correlation-id'] })
     res.writeHead(500, { 'content-type': 'text/html' })
     res.end('<html>private-database-error</html>')
   })
@@ -118,7 +118,9 @@ test('real browser client, proxy, and mock upstream share one reference on failu
     const client = createApiClient({ baseURL: `http://127.0.0.1:${proxy.address().port}`, proxy: false })
     await assert.rejects(client.get(selected[0]), error => {
       const id = backendRecords[0].request_id
+      assert.equal(backendRecords[0].correlation_id, id)
       assert.equal(proxyRecords[0].request_id, id)
+      assert.equal(error.response.headers['x-correlation-id'], id)
       assert.equal(error.response.headers['x-stellina-request-id'], id)
       assert.equal(error.requestId, id)
       assert.ok(getApiErrorMessage(error, 'fallback').endsWith(`Reference: ${id}`))

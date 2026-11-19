@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { writeSync } from 'node:fs'
 
 const UPSTREAM_ORIGIN = 'https://api.unoventi.ai'
+const CORRELATION_ID_HEADER = 'x-correlation-id'
 const REQUEST_ID_HEADER = 'x-stellina-request-id'
 const TIMEOUT_MS = 15_000
 const ERROR_BY_STATUS = new Map([
@@ -87,13 +88,19 @@ function safeError(status, correlationId) {
   return { detail: { code, message, correlation_id: correlationId } }
 }
 
+function validCorrelationId(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value) ? value : null
+}
+
 // Server-only helper; routePath comes from a reviewed entry point, never browser input.
 // It intentionally buffers small JSON responses so timeouts/body failures are correlated.
 export async function proxyStellinaRequest(request, routePath, options = {}) {
   const now = options.now || (() => performance.now())
   const startedAt = now()
-  const suppliedId = request.headers.get(REQUEST_ID_HEADER) || ''
-  const requestId = /^[A-Za-z0-9._:-]{1,128}$/.test(suppliedId) ? suppliedId : randomUUID()
+  // The platform header is authoritative. The Stellina alias remains only as a
+  // bounded compatibility input/output for older clients.
+  const requestId = validCorrelationId(request.headers.get(CORRELATION_ID_HEADER))
+    || validCorrelationId(request.headers.get(REQUEST_ID_HEADER)) || randomUUID()
   const threshold = options.logLevel === undefined ? minimumLevel : resolveProxyLogLevel(options.logLevel, 'test')
   const logger = options.logger || console
   const context = {
@@ -121,6 +128,7 @@ export async function proxyStellinaRequest(request, routePath, options = {}) {
       const value = request.headers.get(name)
       if (value && !blocked.includes(name)) headers.set(name, value)
     }
+    headers.set(CORRELATION_ID_HEADER, requestId)
     headers.set(REQUEST_ID_HEADER, requestId)
     const init = { method: request.method, headers, redirect: 'manual', signal: controller.signal }
     if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -134,6 +142,7 @@ export async function proxyStellinaRequest(request, routePath, options = {}) {
     for (const name of [...strippedHeaders(upstream.headers), 'content-length', 'content-encoding']) {
       if (name) responseHeaders.delete(name)
     }
+    responseHeaders.set(CORRELATION_ID_HEADER, requestId)
     responseHeaders.set(REQUEST_ID_HEADER, requestId)
     const duration = Math.max(0, Math.round(now() - startedAt))
     log(upstream.status >= 500 ? 'error' : upstream.status >= 400 || duration >= 5000 ? 'warn' : 'info', {
@@ -157,7 +166,9 @@ export async function proxyStellinaRequest(request, routePath, options = {}) {
       error_type: timedOut ? 'UpstreamTimeout' : request.signal.aborted ? 'RequestCancelled' : 'UpstreamConnectionError',
     })
     return Response.json(safeError(status, requestId), {
-      status, headers: { 'cache-control': 'no-store', [REQUEST_ID_HEADER]: requestId },
+      status, headers: {
+        'cache-control': 'no-store', [CORRELATION_ID_HEADER]: requestId, [REQUEST_ID_HEADER]: requestId,
+      },
     })
   } finally {
     clearTimeout(timer)

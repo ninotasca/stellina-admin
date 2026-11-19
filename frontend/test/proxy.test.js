@@ -28,6 +28,7 @@ afterEach(() => {
   else process.env.VERCEL_ENV = previousEnvironment
 })
 const idHeader = 'x-stellina-request-id'
+const correlationHeader = 'x-correlation-id'
 const request = (init, query = '') => new Request(`https://stellina.example${route}${query}`, init)
 const errorDetail = (code, message, correlationId) => ({ detail: { code, message, correlation_id: correlationId } })
 function recorder() {
@@ -72,6 +73,7 @@ for (const [outcome, status, event, level, errorType] of [
       logger, logLevel: 'DEBUG', timeoutMs: 10, now: () => 100,
       fetchImpl: async (_, init) => {
         assert.equal(init.headers.get(idHeader), 'message-fixture')
+        assert.equal(init.headers.get(correlationHeader), 'message-fixture')
         if (outcome === 'timeout') {
           return new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(new Error('private timeout')), { once: true }))
         }
@@ -84,6 +86,7 @@ for (const [outcome, status, event, level, errorType] of [
     })
     assert.equal(response.status, status)
     assert.equal(response.headers.get(idHeader), 'message-fixture')
+    assert.equal(response.headers.get(correlationHeader), 'message-fixture')
     assert.equal(response.headers.get('cache-control'), status >= 400 ? 'no-store' : 'private')
     const expectedBody = outcome === 'client error'
       ? errorDetail('resource_not_found', 'The requested Stellina resource was not found.', 'message-fixture')
@@ -222,28 +225,54 @@ test('pinned prior/current release pairs restore filtering and correlation after
   } finally { process.env = saved }
 })
 
-test('read forwards auth, query and one validated ID; logs completion with safe route and duration', async () => {
+test('read prefers and forwards the canonical ID with its compatibility alias', async () => {
   const { entries, logger } = recorder()
-  const response = await proxyStellinaRequest(request({ headers: { [idHeader]: 'correlation-123', authorization: 'Bearer test-token' } }, '?statuses=definite&statuses=prospect'), route, {
+  const response = await proxyStellinaRequest(request({ headers: {
+    [correlationHeader]: 'canonical-123', [idHeader]: 'legacy-ignored', authorization: 'Bearer test-token',
+  } }, '?statuses=definite&statuses=prospect'), route, {
     logger, fetchImpl: async (url, init) => {
       assert.equal(String(url), `https://api.unoventi.ai${route}?statuses=definite&statuses=prospect`)
       assert.equal(init.headers.get('authorization'), 'Bearer test-token')
-      assert.equal(init.headers.get(idHeader), 'correlation-123')
+      assert.equal(init.headers.get(correlationHeader), 'canonical-123')
+      assert.equal(init.headers.get(idHeader), 'canonical-123')
       assert.equal(init.redirect, 'manual')
       assert.equal(init.body, undefined)
       return Response.json({ groups: [] })
     },
   })
   assert.deepEqual(await response.json(), { groups: [] })
-  assert.equal(response.headers.get(idHeader), 'correlation-123')
+  assert.equal(response.headers.get(correlationHeader), 'canonical-123')
+  assert.equal(response.headers.get(idHeader), 'canonical-123')
   assert.equal(entries.length, 1)
   assert.equal(entries[0].event, 'stellina.proxy.completed')
-  assert.equal(entries[0].request_id, 'correlation-123')
+  assert.equal(entries[0].request_id, 'canonical-123')
   assert.equal(entries[0].service, 'stellina-web')
   assert.equal(entries[0].status, 200)
   assert.equal(entries[0].route, route)
   assert.ok(entries[0].duration_ms >= 0)
   assert.ok(!Number.isNaN(Date.parse(entries[0].timestamp)))
+})
+
+test('canonical correlation validation uses the legacy alias only as an explicit fallback', async () => {
+  for (const fixture of [
+    { canonical: 'canonical._:-123', legacy: 'legacy-123', expected: 'canonical._:-123' },
+    { canonical: 'bad canonical', legacy: 'legacy-123', expected: 'legacy-123' },
+    { canonical: '<invalid>', legacy: 'also invalid', expected: null },
+  ]) {
+    let upstreamId
+    const response = await proxyStellinaRequest(request({ headers: {
+      [correlationHeader]: fixture.canonical, [idHeader]: fixture.legacy,
+    } }), route, options({ fetchImpl: async (_, init) => {
+      upstreamId = init.headers.get(correlationHeader)
+      assert.equal(init.headers.get(idHeader), upstreamId)
+      return new Response('private upstream error', { status: 503 })
+    } }))
+    if (fixture.expected) assert.equal(upstreamId, fixture.expected)
+    else assert.match(upstreamId, /^[0-9a-f-]{36}$/)
+    assert.equal(response.headers.get(correlationHeader), upstreamId)
+    assert.equal(response.headers.get(idHeader), upstreamId)
+    assert.equal((await response.json()).detail.correlation_id, upstreamId)
+  }
 })
 
 for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
@@ -389,6 +418,7 @@ test('validated references correlate every event with upstream, response and gat
       }
       assert.equal(response.status, outcome === 'success' ? 200 : outcome === 'failure' ? 502 : 504)
       assert.equal(response.headers.get(idHeader), upstreamId)
+      assert.equal(response.headers.get(correlationHeader), upstreamId)
       if (outcome !== 'success') assert.equal((await response.json()).detail.correlation_id, upstreamId)
       assert.equal(entries.length, 2)
       for (const entry of entries) {

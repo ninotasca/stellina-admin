@@ -7,6 +7,7 @@ import { classifyEnvironment, proxyStellinaRequest } from '../server/stellinaPro
 
 const route = '/api/v1/stellina/health'
 const idHeader = 'x-stellina-request-id'
+const correlationHeader = 'x-correlation-id'
 const canary = 'private-logging-failure-canary'
 const stringify = JSON.stringify
 
@@ -58,6 +59,7 @@ for (const failure of ['serialization', 'primary sink']) {
             },
           })
           assert.equal(response.headers.get(idHeader), 'logging-fixture')
+          assert.equal(response.headers.get(correlationHeader), 'logging-fixture')
           if (outcome === 'success') {
             assert.equal(response.status, 201)
             assert.equal(await response.text(), `upstream body ${canary}`)
