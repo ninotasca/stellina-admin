@@ -14,6 +14,7 @@
     "test:architecture": "node --import ./test/register.mjs --test test/import-boundaries.test.js test/routing.test.js"
   },
   "dependencies": {
+    "@ninotasca/web-platform": "0.1.0-next.0",
     "@supabase/supabase-js": "2.116.0",
     "@tiptap/extension-link": "^3.23.6",
     "@tiptap/react": "^3.23.6",
