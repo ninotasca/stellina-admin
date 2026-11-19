@@ -6,10 +6,14 @@ import { createServer as createViteServer } from 'vite'
 import health from '../api/v1/stellina/health.js'
 import projections from '../api/v1/stellina/commissions/projections.js'
 import { proxyStellinaRequest } from '../server/stellinaProxy.js'
-import { createApiClient, getApiErrorMessage } from '../src/services/http.ts'
+import { createApiClient, getApiErrorMessage } from '../src/platform/http/index.ts'
 
 const config = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'))
 const selected = ['/api/v1/stellina/health', '/api/v1/stellina/commissions/projections']
+
+test('Vercel deploys only the production branch', () => {
+  assert.deepEqual(config.git?.deploymentEnabled, { main: true, '*': false })
+})
 
 test('only two exact Function entries precede Stellina/core forwarding and existing SPA fallback', () => {
   assert.deepEqual(config.rewrites.slice(0, 2), selected.map(path => ({ source: path, destination: path })))
@@ -100,7 +104,7 @@ test('real browser client, proxy, and mock upstream share one reference on failu
   const backendRecords = []
   const proxyRecords = []
   const upstream = createHttpServer((req, res) => {
-    backendRecords.push({ request_id: req.headers['x-stellina-request-id'] })
+    backendRecords.push({ request_id: req.headers['x-stellina-request-id'], correlation_id: req.headers['x-correlation-id'] })
     res.writeHead(500, { 'content-type': 'text/html' })
     res.end('<html>private-database-error</html>')
   })
@@ -118,7 +122,9 @@ test('real browser client, proxy, and mock upstream share one reference on failu
     const client = createApiClient({ baseURL: `http://127.0.0.1:${proxy.address().port}`, proxy: false })
     await assert.rejects(client.get(selected[0]), error => {
       const id = backendRecords[0].request_id
+      assert.equal(backendRecords[0].correlation_id, id)
       assert.equal(proxyRecords[0].request_id, id)
+      assert.equal(error.response.headers['x-correlation-id'], id)
       assert.equal(error.response.headers['x-stellina-request-id'], id)
       assert.equal(error.requestId, id)
       assert.ok(getApiErrorMessage(error, 'fallback').endsWith(`Reference: ${id}`))

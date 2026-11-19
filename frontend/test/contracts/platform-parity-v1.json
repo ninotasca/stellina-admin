@@ -1,0 +1,9 @@
+{
+  "version": "platform-parity-v1",
+  "auth_statuses": ["loading", "anonymous", "authorizing", "authenticated", "forbidden", "disabled", "unavailable"],
+  "auth_operations": ["exchange", "restore", "refresh", "logout"],
+  "state_kinds": ["loading", "empty", "unauthenticated", "forbidden", "unavailable", "validation", "conflict", "unexpected"],
+  "state_operations": ["abort", "refetch", "invalidate", "retain_data_on_error"],
+  "provider_requirements": ["persistSession:false", "autoRefreshToken:false"],
+  "accessibility_requirements": ["role", "aria-live", "aria-busy"]
+}

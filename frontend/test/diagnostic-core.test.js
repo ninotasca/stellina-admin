@@ -4,11 +4,16 @@ import { fileURLToPath } from 'node:url'
 import { build } from 'vite'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-const entry = fileURLToPath(new URL('../src/lib/diagnostic-core.ts', import.meta.url))
+const entry = fileURLToPath(new URL('../src/platform/diagnostics/index.ts', import.meta.url))
 async function diagnostics(mode, raw) {
+  const level = raw === undefined ? ({ development: 'debug', staging: 'warn', production: 'error' })[mode] : raw.trim().toLowerCase()
+  const config = {
+    manifest: { applicationId: 'stellina-admin', auth: { siteKey: 'stellina' } },
+    environment: mode, clientLogLevel: level,
+  }
   const output = await build({
     root, configFile: false, mode, logLevel: 'silent',
-    define: { 'import.meta.env.VITE_CLIENT_LOG_LEVEL': raw === undefined ? 'undefined' : JSON.stringify(raw) },
+    define: { __STELLINA_PUBLIC_CONFIG__: JSON.stringify(config) },
     build: { write: false, minify: false, lib: { entry, formats: ['es'] } },
   })
   const code = (Array.isArray(output) ? output : [output]).flatMap(bundle => bundle.output).find(item => item.type === 'chunk').code
@@ -27,8 +32,9 @@ test('browser modes, portable levels, filtering, envelope and privacy', async ()
       for (const raw of ['DEBUG', 'info', ' wArN ', 'ERROR']) {
         assert.equal(resolveClientLogLevel(raw, mode), raw.trim().toLowerCase())
       }
-      for (const raw of ['', 'WARNING', 'toString', 'private-invalid-canary']) {
-        assert.throws(() => resolveClientLogLevel(raw, mode), /VITE_CLIENT_LOG_LEVEL must be/)
+      assert.equal(resolveClientLogLevel('', mode), expected[0])
+      for (const raw of ['WARNING', 'toString', 'private-invalid-canary']) {
+        assert.throws(() => resolveClientLogLevel(raw, mode), /Client log level must be/)
       }
       const lines = []
       for (const level of Object.keys(sinks)) console[level] = line => { lines.push([level, JSON.parse(line)]) }
@@ -82,7 +88,8 @@ test('adapter isolates event construction, serialization and sink failures', asy
     Date.prototype.toISOString = original.iso
     console.error = () => { throw new Error('sink-canary') }
     assert.doesNotThrow(() => clientLog('error', 'unoventi.auth.logout_failed'))
-    assert.deepEqual(lines, [])
+    assert.equal(lines.length, 1)
+    assert.equal(JSON.parse(lines[0]).event, 'unoventi.auth.logout_failed')
   } finally {
     console.error = original.sink
     JSON.stringify = original.stringify

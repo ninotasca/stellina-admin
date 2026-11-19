@@ -10,16 +10,24 @@ const contract = JSON.parse(readFileSync(contractUrl, 'utf8'))
 let reply
 let calls = []
 const store = new Map([['access_token', 'synthetic-session']])
-globalThis.localStorage = { getItem: key => store.get(key) ?? null }
-globalThis.window = { location: { href: '/commissions/booking' } }
+globalThis.localStorage = {
+  getItem: key => store.get(key) ?? null,
+  setItem: (key, value) => store.set(key, value),
+  removeItem: key => store.delete(key),
+}
+globalThis.window = { location: { href: '/commissions/booking', pathname: '/commissions/booking' } }
+globalThis.sessionStorage = { getItem: () => null, setItem() {}, removeItem() {} }
 axios.defaults.adapter = async config => {
   calls.push(config)
   const response = { ...reply, statusText: '', config }
   if (response.status >= 400) throw new AxiosError('Adapter failure', 'ERR_BAD_RESPONSE', config, null, response)
   return response
 }
-const { cventTrackerApi } = await import('../src/services/cventTrackerApi.ts')
-const { createApiClient, getApiErrorMessage } = await import('../src/services/http.ts')
+const { cventTrackerApi } = await import('../src/features/cvent/api.ts')
+const { createApiClient, getApiErrorMessage } = await import('../src/platform/http/index.ts')
+const { credentialStore } = await import('../src/platform/auth/runtime.ts')
+const credentialSnapshot = () => credentialStore.snapshot()
+credentialStore.install({ access_token: 'synthetic-session', csrf_token: 'c'.repeat(32), expires_at: '2099-01-01T00:00:00.000Z' })
 const safeMessage = 'The Stellina data service is unavailable. Please try again.'
 
 test('consumer uses the same versioned schema as the API', () => {
@@ -50,7 +58,7 @@ for (const operation of contract.operations) {
         return true
       })
       assert.equal(calls.length, 1, 'no automatic retry of a potentially partial upload')
-      assert.equal(store.get('access_token'), 'synthetic-session')
+      assert.equal(credentialSnapshot().accessToken, 'synthetic-session')
       assert.equal(globalThis.window.location.href, '/commissions/booking')
     })
   }

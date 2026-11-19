@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "applicationId": "stellina-admin",
+  "api": {
+    "owner": "unoventi-api",
+    "productNamespace": "stellina",
+    "coreCapabilities": ["auth"]
+  },
+  "auth": { "siteKey": "stellina" },
+  "branding": {
+    "displayName": "Stellina Admin",
+    "logoPath": "/brand/stellina-logo-black.png",
+    "postLoginPath": "/dashboard"
+  }
+}

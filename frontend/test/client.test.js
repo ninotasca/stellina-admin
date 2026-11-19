@@ -7,7 +7,9 @@ let reply = { status: 200, data: '{}' }
 let calls = []
 const store = new Map()
 globalThis.localStorage = { getItem: key => store.get(key) ?? null, removeItem: key => store.delete(key), setItem: (key, value) => store.set(key, value) }
-globalThis.window = { location: { href: '/dashboard', pathname: '/dashboard' } }
+const sessionStore = new Map()
+globalThis.sessionStorage = { getItem: key => sessionStore.get(key) ?? null, removeItem: key => sessionStore.delete(key), setItem: (key, value) => sessionStore.set(key, value) }
+globalThis.window = Object.assign(new EventTarget(), { location: { href: '/dashboard', pathname: '/dashboard' } })
 axios.defaults.adapter = async config => {
   calls.push(config)
   if (reply.throw) throw reply.throw
@@ -15,22 +17,31 @@ axios.defaults.adapter = async config => {
   if (reply.status >= 400) throw new AxiosError('Raw adapter failure', 'ERR_BAD_REQUEST', config, null, response)
   return response
 }
-const { createApiClient, getApiErrorMessage, publicApiClient } = await import('../src/services/http.ts')
-const { apiClient } = await import('../src/services/api.ts')
-const { commissionApi } = await import('../src/services/commissionApi.ts')
-const { cventTrackerApi } = await import('../src/services/cventTrackerApi.ts')
-const { rfpApi, publicHotelApi } = await import('../src/services/rfpApi.ts')
-const { siteSelectionApi, publicSiteSelectionApi } = await import('../src/services/siteSelectionApi.ts')
-const { nimbleApi } = await import('../src/services/nimbleApi.ts')
+const { createApiClient, getApiErrorMessage, publicApiClient, coreProtectedApiClient } = await import('../src/platform/http/index.ts')
+const { authBackend } = await import('../src/platform/auth/api.ts')
+const { credentialStore } = await import('../src/platform/auth/runtime.ts')
+const clearCredential = generation => credentialStore.clear(generation)
+const credentialSnapshot = () => credentialStore.snapshot()
+const installCredential = (accessToken, csrfToken, expiresAt) => credentialStore.install({ access_token: accessToken, csrf_token: csrfToken, expires_at: expiresAt })
+const { administrationApi } = await import('../src/features/administration/api.ts')
+const { commissionApi } = await import('../src/features/commissions/api.ts')
+const { cventTrackerApi } = await import('../src/features/cvent/api.ts')
+const { rfpApi, publicHotelApi } = await import('../src/features/rfp/api.ts')
+const { siteSelectionApi, publicSiteSelectionApi } = await import('../src/features/site-selection/api.ts')
+const { nimbleApi } = await import('../src/features/nimble/api.ts')
 const header = 'x-stellina-request-id'
 
 test.beforeEach(() => {
   reply = { status: 200, data: '{}' }
   calls = []
   store.clear()
+  sessionStore.clear()
+  clearCredential()
   globalThis.window.location.href = '/dashboard'
   globalThis.window.location.pathname = '/dashboard'
 })
+
+const authenticate = (token = 'private-token') => installCredential(token, 'c'.repeat(32), '2099-01-01T00:00:00.000Z')
 
 async function failure(client = createApiClient()) {
   return client.get('/example').then(() => assert.fail('expected rejection'), error => error)
@@ -132,16 +143,19 @@ test('successful empty deletes, HEAD and blob downloads retain their values', as
   assert.equal((await createApiClient().head('/example')).data, '')
   const blob = new Blob(['raw sqlite bytes'])
   reply = { status: 200, data: blob }
-  assert.equal(await apiClient.downloadSqliteBackup(), blob)
+  assert.equal(await administrationApi.downloadSqliteBackup(), blob)
   assert.equal(calls.at(-1).responseType, 'blob')
 })
 
 test('all private clients use same-origin paths and preserve bearer tokens', async () => {
-  store.set('access_token', 'private-token')
-  await apiClient.healthCheck()
+  authenticate()
+  await coreProtectedApiClient.get('/health/stellina')
   assert.equal(calls.at(-1).baseURL, '/api/v1/core')
   assert.equal(calls.at(-1).url, '/health/stellina')
   assert.equal(calls.at(-1).headers.Authorization, 'Bearer private-token')
+  assert.equal(calls.at(-1).headers['X-Unoventi-Site-Id'], 'stellina')
+  assert.match(calls.at(-1).headers['X-Unoventi-Visit-Id'], /^[0-9a-f-]{36}$/)
+  assert.match(calls.at(-1).headers['X-Correlation-Id'], /^[0-9a-f-]{36}$/)
 
   const methods = [() => commissionApi.projections({ statuses: ['definite', 'prospect'] }),
     () => cventTrackerApi.listAll(), () => rfpApi.listRFPs(), () => siteSelectionApi.listForms(), () => nimbleApi.listDeals()]
@@ -149,59 +163,89 @@ test('all private clients use same-origin paths and preserve bearer tokens', asy
     await method()
     assert.equal(calls.at(-1).baseURL, '/api/v1/stellina')
     assert.equal(calls.at(-1).headers.Authorization, 'Bearer private-token')
+    assert.equal(calls.at(-1).headers['X-Unoventi-Site-Id'], 'stellina')
+    assert.match(calls.at(-1).headers['X-Correlation-Id'], /^[0-9a-f-]{36}$/)
   }
   assert.match(calls[1].url, /statuses=definite&statuses=prospect/)
 })
 
+test('domain reads propagate cancellation and domain mutations retain reviewed endpoints', async () => {
+  authenticate()
+  const controller = new AbortController()
+  const reads = [
+    [() => commissionApi.listEvents(controller.signal), '/commissions/events'],
+    [() => cventTrackerApi.listAll(controller.signal), '/commissions/cvent-trackers'],
+    [() => rfpApi.listRFPs(controller.signal), '/rfps'],
+    [() => siteSelectionApi.listForms(undefined, controller.signal), '/site-selection/forms'],
+    [() => nimbleApi.listDeals({}, controller.signal), '/nimble/deals'],
+    [() => administrationApi.getLoginAttempts(100, undefined, controller.signal), '/auth/login-attempts'],
+  ]
+  for (const [read, url] of reads) {
+    await read()
+    assert.equal(calls.at(-1).url, url)
+    assert.equal(calls.at(-1).signal, controller.signal)
+  }
+
+  const mutations = [
+    [() => commissionApi.deleteEvent('event'), '/commissions/events/event', 'delete'],
+    [() => cventTrackerApi.reset('event'), '/commissions/event/cvent-tracker', 'delete'],
+    [() => rfpApi.deleteRFP('rfp'), '/rfps/rfp', 'delete'],
+    [() => siteSelectionApi.deleteForm('form'), '/site-selection/forms/form', 'delete'],
+    [() => administrationApi.createAllowedGoogleAccount({ email: 'admin@example.com' }), '/auth/allowed-google-accounts', 'post'],
+  ]
+  for (const [mutate, url, method] of mutations) {
+    await mutate()
+    assert.equal(calls.at(-1).url, url)
+    assert.equal(calls.at(-1).method, method)
+  }
+  assert.ok(Object.keys(nimbleApi).every(name => name.startsWith('list')), 'Nimble integration is intentionally read-only')
+})
+
 test('public forms never gain bearer auth or 401 login redirects', async () => {
-  store.set('access_token', 'private-token')
+  authenticate()
   for (const method of [() => publicSiteSelectionApi.getForm('public-guid'), () => publicHotelApi.getRFPByGuid('public-guid')]) {
     await method()
     assert.match(calls.at(-1).url, /^\/api\/v1\/stellina\//)
     assert.equal(calls.at(-1).headers.Authorization, undefined)
+    assert.equal(calls.at(-1).headers['X-Unoventi-Site-Id'], 'stellina')
+    assert.match(calls.at(-1).headers['X-Correlation-Id'], /^[0-9a-f-]{36}$/)
   }
   reply = { status: 401, data: '{}' }
   await assert.rejects(publicApiClient.get('/api/v1/stellina/public'))
   assert.equal(globalThis.window.location.href, '/dashboard')
-  assert.equal(store.get('access_token'), 'private-token')
+  assert.equal(credentialSnapshot().accessToken, 'private-token')
 })
 
-test('shared OAuth payload, logout/auth paths and established 401 redirect are preserved', async () => {
-  store.set('access_token', 'private-token')
-  store.set('user', '{}')
-  await apiClient.googleAuth('code-example', 'https://stellina.example/auth/callback')
-  assert.equal(calls[0].baseURL, '/api/v1/core')
-  assert.equal(calls[0].url, '/auth/google')
-  assert.deepEqual(JSON.parse(calls[0].data), { code: 'code-example', redirect_uri: 'https://stellina.example/auth/callback', site_id: 'test-site' })
-  await apiClient.logout()
-  assert.equal(calls.at(-1).url, '/auth/logout')
-  reply = { status: 401, data: '<html>private-secret</html>' }
-  await assert.rejects(apiClient.getCurrentUser())
-  assert.equal(calls.at(-1).baseURL, '/api/v1/core')
-  assert.equal(calls.at(-1).url, '/auth/session/stellina')
-  assert.equal(globalThis.window.location.href, '/login')
-  assert.equal(store.has('access_token'), false)
-  assert.equal(store.has('user'), false)
+test('provider proof is used only for Core browser-session exchange and is never installed directly', async () => {
+  const now = Date.now(), response = {
+    access_token: 'a'.repeat(40), token_type: 'bearer', issued_at: new Date(now).toISOString(),
+    expires_at: new Date(now + 120000).toISOString(), expires_in_seconds: 120, csrf_token: 'c'.repeat(32),
+    authority: { site_key: 'stellina', actor: { id: 'actor', email: 'admin@stellina.example', full_name: 'Admin', avatar_url: null, provider: 'google' }, roles: ['admin'], permissions: [], session_started_at: new Date(now - 1000).toISOString(), absolute_expires_at: new Date(now + 3600000).toISOString(), idle_expires_at: new Date(now + 1800000).toISOString() },
+  }
+  const originalFetch = globalThis.fetch, requests = []
+  globalThis.fetch = async (url, init) => { requests.push({ url, init }); return new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } }) }
+  try {
+    assert.deepEqual(await authBackend.exchange('raw-provider-proof'), response)
+    assert.equal(requests[0].url, '/api/v1/core/auth/browser-session/stellina/exchange')
+    assert.equal(new Headers(requests[0].init.headers).get('Authorization'), 'Bearer raw-provider-proof')
+    assert.equal(requests[0].init.credentials, 'same-origin')
+    assert.equal(credentialSnapshot().accessToken, null)
+    await authBackend.logout('c'.repeat(32))
+    assert.equal(requests.at(-1).url, '/api/v1/core/auth/browser-session/stellina')
+    assert.equal(new Headers(requests.at(-1).init.headers).get('X-CSRF-Token'), 'c'.repeat(32))
+  } finally { globalThis.fetch = originalFetch }
 })
 
-test('401 on an auth route clears app state without reloading the login page', async () => {
-  store.set('access_token', 'stale-token')
-  store.set('user', '{}')
-  globalThis.window.location.href = '/login'
-  globalThis.window.location.pathname = '/login'
-  reply = { status: 401, data: '{}' }
-  await assert.rejects(apiClient.getCurrentUser())
-  assert.equal(globalThis.window.location.href, '/login')
-  assert.equal(store.has('access_token'), false)
-  assert.equal(store.has('user'), false)
-})
-
-test('other existing private clients do not gain a 401 redirect', async () => {
-  store.set('access_token', 'private-token')
+test('protected 401 emits its credential generation without clearing a newer session or redirecting', async () => {
+  const installed = authenticate('older-token')
+  let rejectedGeneration = null
+  const listener = event => { rejectedGeneration = event.detail.generation }
+  globalThis.window.addEventListener('unoventi:auth-rejected', listener, { once: true })
   reply = { status: 401, data: '{}' }
   await assert.rejects(commissionApi.listEvents())
+  assert.equal(rejectedGeneration, installed.generation)
+  assert.equal(credentialSnapshot().accessToken, 'older-token')
   assert.equal(globalThis.window.location.href, '/dashboard')
-  assert.equal(store.get('access_token'), 'private-token')
 })
 
 test('multipart uploads preserve FormData, paths and no retry', async () => {
@@ -234,9 +278,9 @@ test('upload validation keeps friendly workbook errors while hiding parser and c
 
 test('history v1 client uses scoped Stellina authority and retains the provider contract', async () => {
   const fixture = JSON.parse(readFileSync(new URL('./contracts/login-history-v1.json', import.meta.url)))
-  store.set('access_token', 'exchanged-stellina-session')
+  authenticate('exchanged-stellina-session')
   reply.data = JSON.stringify(fixture.scoped_response)
-  const rows = await apiClient.getLoginAttempts(2)
+  const rows = await administrationApi.getLoginAttempts(2)
   assert.deepEqual(rows, fixture.scoped_response)
   // The provider test checks this same versioned schema against its generated model.
   const schema = fixture.response_schema.$defs.LoginAttemptResponse
@@ -257,12 +301,12 @@ test('history v1 client uses scoped Stellina authority and retains the provider 
   calls = []
   const last = rows.at(-1)
   const cursor = `${last.timestamp}|${last.id}`
-  await apiClient.getLoginAttempts(2, cursor)
+  await administrationApi.getLoginAttempts(2, cursor)
   assert.deepEqual(calls[0].params, { limit: 2, cursor })
   for (const status of [403, 422, 503]) {
     calls = []
     reply = { status, data: JSON.stringify({code: 'history_unavailable', message: 'Login history unavailable', correlation_id: 'history-ref'}) }
-    await assert.rejects(apiClient.getLoginAttempts(), error => error.response.status === status && error.requestId === 'history-ref')
+    await assert.rejects(administrationApi.getLoginAttempts(), error => error.response.status === status && error.requestId === 'history-ref')
     assert.equal(calls.length, 1) // no global fallback or retries
     assert.equal(calls[0].baseURL, '/api/v1/stellina')
   }
@@ -272,6 +316,6 @@ test('history v1 client uses scoped Stellina authority and retains the provider 
 test('canonical history correlation header is bounded and preferred over body references', async () => {
   for (const [reference, expected] of [['header-history-ref', 'header-history-ref'], ['x'.repeat(129), 'body-history-ref']]) {
     reply = { status: 503, headers: { 'x-correlation-id': reference }, data: JSON.stringify({correlation_id: 'body-history-ref'}) }
-    await assert.rejects(apiClient.getLoginAttempts(), error => error.requestId === expected)
+    await assert.rejects(administrationApi.getLoginAttempts(), error => error.requestId === expected)
   }
 })

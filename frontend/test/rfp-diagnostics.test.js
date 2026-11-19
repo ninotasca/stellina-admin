@@ -12,6 +12,11 @@ const pages = { RFPForm: 'save_failed', HotelInvitations: 'invitations_load_fail
 async function compile(page, contained = false, unsafe = false) {
   const output = await build({
     root, configFile: false, mode: 'production', logLevel: 'silent',
+    define: { __STELLINA_PUBLIC_CONFIG__: JSON.stringify({
+      manifest: { applicationId: 'stellina-admin', api: { productNamespace: 'stellina' }, auth: { siteKey: 'stellina' } },
+      environment: 'production', clientLogLevel: 'error', apiBaseUrl: '/api/v1',
+      switches: { includeTestBookings: false },
+    }) },
     esbuild: { jsx: 'transform' },
     plugins: [{
       name: 'rfp-page-fixture', enforce: 'pre',
@@ -20,14 +25,16 @@ async function compile(page, contained = false, unsafe = false) {
         if (id === 'axios') return '\0axios'
         if (id === 'react') return '\0react'
         if (id === 'react-router-dom') return '\0router'
+        if (id === '../auth/runtime') return '\0credential-store'
         if (id.endsWith('/RichTextInput')) return '\0richtext'
-        if ((contained || unsafe) && (id.endsWith('/rfp-diagnostics') || id.endsWith('/rfp-diagnostics.ts'))) return '\0contained'
+        if (id === '../commissions/index' || id.endsWith('/features/commissions/index')) return '\0commissions'
+        if ((contained || unsafe) && (id.endsWith('/diagnostics') || id.endsWith('/diagnostics.ts'))) return '\0contained'
       },
       load(id) {
         if (id === '\0axios') return `import axios from ${JSON.stringify(`${root}/node_modules/axios/index.js`)};
           export * from ${JSON.stringify(`${root}/node_modules/axios/index.js`)};
           axios.defaults.adapter = config => globalThis.__rfpFixture.adapter(config); export default axios;`
-        if (id === '\0entry') return `export { default as Page } from ${JSON.stringify(`${root}/src/pages/${page}.tsx`)}; export { default as axios } from 'axios'; export { logRfpFailure } from ${JSON.stringify(`${root}/src/lib/rfp-diagnostics.ts`)};`
+        if (id === '\0entry') return `export { default as Page } from ${JSON.stringify(`${root}/src/features/rfp/${page}.tsx`)}; export { default as axios } from 'axios'; export { logRfpFailure } from ${JSON.stringify(`${root}/src/features/rfp/diagnostics.ts`)};`
         if (id === '\0react') return `
           const h = () => globalThis.__rfpFixture;
           export const useState = initial => {
@@ -40,7 +47,9 @@ async function compile(page, contained = false, unsafe = false) {
         `
         if (id === '\0router') return `export const useParams = () => globalThis.__rfpFixture.params;
           export const useNavigate = () => path => globalThis.__rfpFixture.navigation.push(path);`
+        if (id === '\0credential-store') return `export const credentialStore = {snapshot: () => ({ accessToken: 'synthetic-rfp-private-canary', generation: 1 })};`
         if (id === '\0richtext') return 'export default function RichTextInput() {}'
+        if (id === '\0commissions') return `export { commissionApi } from ${JSON.stringify(`${root}/src/features/commissions/api.ts`)};`
         // Exercise containment and an unsafe raw-error regression through real page handlers.
         if (id === '\0contained') return unsafe
           ? 'export function logRfpFailure(event, error) { console.error(error); }'
@@ -72,7 +81,11 @@ async function probe(mod, page, { status = 401, stage = 'rfp', edit = false, con
     params: page === 'RFPForm' ? (edit ? { id: rfp.id } : { eventId: event.id }) : { rfpId: rfp.id }, saving: false }
   globalThis.__rfpFixture = f
   Object.defineProperty(globalThis, 'localStorage', {
-    configurable: true, writable: true, value: { getItem: () => canary },
+    configurable: true, writable: true, value: {
+      getItem: key => key === 'access_token' ? canary : null,
+      setItem() {},
+      removeItem() {},
+    },
   })
   f.adapter = async config => {
     requests.push(config)
@@ -154,7 +167,7 @@ async function probe(mod, page, { status = 401, stage = 'rfp', edit = false, con
 }
 for (const page of Object.keys(pages)) {
   test(`${page}: authenticated failures preserve safe diagnostics and UI without leaking credentials`, async () => {
-    const source = readFileSync(new URL(`../src/pages/${page}.tsx`, import.meta.url), 'utf8')
+    const source = readFileSync(new URL(`../src/features/rfp/${page}.tsx`, import.meta.url), 'utf8')
     assert.doesNotMatch(source, /\bconsole\s*(?:\.|\[)/)
     const mod = await compile(page)
     for (const status of [401, 403, 500, null]) {

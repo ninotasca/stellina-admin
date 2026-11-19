@@ -5,12 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
+    "build": "npm run check:imports && tsc -b && vite build",
+    "lint": "npm run check:imports && eslint .",
     "preview": "vite preview",
-    "test": "node --import ./test/register.mjs --test test/*.test.js"
+    "test": "node --import ./test/register.mjs --test test/*.test.js",
+    "typecheck": "tsc -b",
+    "check:imports": "node scripts/check-import-boundaries.js",
+    "test:architecture": "node --import ./test/register.mjs --test test/import-boundaries.test.js test/routing.test.js"
   },
   "dependencies": {
+    "@ninotasca/web-platform": "0.1.0",
     "@supabase/supabase-js": "2.116.0",
     "@tiptap/extension-link": "^3.23.6",
     "@tiptap/react": "^3.23.6",

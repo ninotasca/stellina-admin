@@ -28,7 +28,9 @@ afterEach(() => {
   else process.env.VERCEL_ENV = previousEnvironment
 })
 const idHeader = 'x-stellina-request-id'
+const correlationHeader = 'x-correlation-id'
 const request = (init, query = '') => new Request(`https://stellina.example${route}${query}`, init)
+const errorDetail = (code, message, correlationId) => ({ detail: { code, message, correlation_id: correlationId } })
 function recorder() {
   const entries = []
   const lines = []
@@ -71,6 +73,7 @@ for (const [outcome, status, event, level, errorType] of [
       logger, logLevel: 'DEBUG', timeoutMs: 10, now: () => 100,
       fetchImpl: async (_, init) => {
         assert.equal(init.headers.get(idHeader), 'message-fixture')
+        assert.equal(init.headers.get(correlationHeader), 'message-fixture')
         if (outcome === 'timeout') {
           return new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(new Error('private timeout')), { once: true }))
         }
@@ -83,11 +86,20 @@ for (const [outcome, status, event, level, errorType] of [
     })
     assert.equal(response.status, status)
     assert.equal(response.headers.get(idHeader), 'message-fixture')
-    assert.equal(response.headers.get('cache-control'), errorType ? 'no-store' : 'private')
-    assert.deepEqual(await response.json(), errorType ? {
-      detail: outcome === 'timeout' ? 'The Stellina data service took too long to respond.' : 'Stellina could not reach the data service.',
-      request_id: 'message-fixture',
-    } : { ok: true })
+    assert.equal(response.headers.get(correlationHeader), 'message-fixture')
+    assert.equal(response.headers.get('cache-control'), status >= 400 ? 'no-store' : 'private')
+    const expectedBody = outcome === 'client error'
+      ? errorDetail('resource_not_found', 'The requested Stellina resource was not found.', 'message-fixture')
+      : outcome === 'server error'
+        ? errorDetail('upstream_failure', 'The Stellina data service could not complete the request.', 'message-fixture')
+        : errorType
+          ? errorDetail(
+            outcome === 'timeout' ? 'upstream_timeout' : 'upstream_unavailable',
+            outcome === 'timeout' ? 'The Stellina data service took too long to respond.' : 'Stellina could not reach the data service.',
+            'message-fixture',
+          )
+          : { ok: true }
+    assert.deepEqual(await response.json(), expectedBody)
     const expectedMessages = {
       'stellina.proxy.started': 'Stellina proxy request started.',
       'stellina.proxy.completed': 'Stellina proxy request completed.',
@@ -137,7 +149,14 @@ test('environment classification, precedence and startup rejection', async () =>
   ]) assert.equal(classifyEnvironment({ ENVIRONMENT_NAME: alias, VERCEL_ENV: 'production' }), expected)
   assert.equal(classifyEnvironment({ RAILWAY_ENVIRONMENT_NAME: 'preview', NODE_ENV: 'production' }), 'staging')
   assert.equal(classifyEnvironment({ VERCEL_ENV: 'preview', NODE_ENV: 'production' }), 'staging')
-  for (const values of [{ ENVIRONMENT_NAME: '' }, { ENVIRONMENT_NAME: 'typo', VERCEL_ENV: 'production' },
+  assert.equal(classifyEnvironment({ ENVIRONMENT_NAME: ' ', RAILWAY_ENVIRONMENT_NAME: 'preview', VERCEL_ENV: 'development' }), 'staging')
+  assert.equal(classifyEnvironment({ ENVIRONMENT_NAME: '', RAILWAY_ENVIRONMENT_NAME: '\t', VERCEL_ENV: 'production' }), 'production')
+  assert.equal(classifyEnvironment({ ENVIRONMENT_NAME: ' ', VERCEL_ENV: '', NODE_ENV: 'production' }), 'production')
+  assert.equal(classifyEnvironment({ ENVIRONMENT_NAME: '', RAILWAY_ENVIRONMENT_NAME: ' ', VERCEL_ENV: '\t', NODE_ENV: '' }), 'development')
+  for (const marker of ['VERCEL', 'RAILWAY_SERVICE_ID', 'RAILWAY_DEPLOYMENT_ID']) {
+    assert.throws(() => classifyEnvironment({ ENVIRONMENT_NAME: ' ', [marker]: 'fixture' }), /Hosted environment must be identified/)
+  }
+  for (const values of [{ ENVIRONMENT_NAME: 'typo', VERCEL_ENV: 'production' },
     { VERCEL_ENV: 'typo' }, { VERCEL: '1' }, { RAILWAY_SERVICE_ID: 'fixture' }, { RAILWAY_DEPLOYMENT_ID: 'fixture' }]) {
     assert.throws(() => classifyEnvironment(values))
   }
@@ -206,28 +225,54 @@ test('pinned prior/current release pairs restore filtering and correlation after
   } finally { process.env = saved }
 })
 
-test('read forwards auth, query and one validated ID; logs completion with safe route and duration', async () => {
+test('read prefers and forwards the canonical ID with its compatibility alias', async () => {
   const { entries, logger } = recorder()
-  const response = await proxyStellinaRequest(request({ headers: { [idHeader]: 'correlation-123', authorization: 'Bearer test-token' } }, '?statuses=definite&statuses=prospect'), route, {
+  const response = await proxyStellinaRequest(request({ headers: {
+    [correlationHeader]: 'canonical-123', [idHeader]: 'legacy-ignored', authorization: 'Bearer test-token',
+  } }, '?statuses=definite&statuses=prospect'), route, {
     logger, fetchImpl: async (url, init) => {
       assert.equal(String(url), `https://api.unoventi.ai${route}?statuses=definite&statuses=prospect`)
       assert.equal(init.headers.get('authorization'), 'Bearer test-token')
-      assert.equal(init.headers.get(idHeader), 'correlation-123')
+      assert.equal(init.headers.get(correlationHeader), 'canonical-123')
+      assert.equal(init.headers.get(idHeader), 'canonical-123')
       assert.equal(init.redirect, 'manual')
       assert.equal(init.body, undefined)
       return Response.json({ groups: [] })
     },
   })
   assert.deepEqual(await response.json(), { groups: [] })
-  assert.equal(response.headers.get(idHeader), 'correlation-123')
+  assert.equal(response.headers.get(correlationHeader), 'canonical-123')
+  assert.equal(response.headers.get(idHeader), 'canonical-123')
   assert.equal(entries.length, 1)
   assert.equal(entries[0].event, 'stellina.proxy.completed')
-  assert.equal(entries[0].request_id, 'correlation-123')
+  assert.equal(entries[0].request_id, 'canonical-123')
   assert.equal(entries[0].service, 'stellina-web')
   assert.equal(entries[0].status, 200)
   assert.equal(entries[0].route, route)
   assert.ok(entries[0].duration_ms >= 0)
   assert.ok(!Number.isNaN(Date.parse(entries[0].timestamp)))
+})
+
+test('canonical correlation validation uses the legacy alias only as an explicit fallback', async () => {
+  for (const fixture of [
+    { canonical: 'canonical._:-123', legacy: 'legacy-123', expected: 'canonical._:-123' },
+    { canonical: 'bad canonical', legacy: 'legacy-123', expected: 'legacy-123' },
+    { canonical: '<invalid>', legacy: 'also invalid', expected: null },
+  ]) {
+    let upstreamId
+    const response = await proxyStellinaRequest(request({ headers: {
+      [correlationHeader]: fixture.canonical, [idHeader]: fixture.legacy,
+    } }), route, options({ fetchImpl: async (_, init) => {
+      upstreamId = init.headers.get(correlationHeader)
+      assert.equal(init.headers.get(idHeader), upstreamId)
+      return new Response('private upstream error', { status: 503 })
+    } }))
+    if (fixture.expected) assert.equal(upstreamId, fixture.expected)
+    else assert.match(upstreamId, /^[0-9a-f-]{36}$/)
+    assert.equal(response.headers.get(correlationHeader), upstreamId)
+    assert.equal(response.headers.get(idHeader), upstreamId)
+    assert.equal((await response.json()).detail.correlation_id, upstreamId)
+  }
 })
 
 for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
@@ -246,14 +291,29 @@ for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
   })
 }
 
-for (const status of [400, 401, 403, 404, 405, 422, 429, 500]) {
-  test(`upstream ${status} retains response and has matching log severity`, async () => {
+for (const [status, code, message] of [
+  [400, 'request_rejected', 'The Stellina request was not accepted.'],
+  [401, 'authentication_required', 'Authentication is required.'],
+  [403, 'authorization_denied', 'This account is not permitted to perform that action.'],
+  [404, 'resource_not_found', 'The requested Stellina resource was not found.'],
+  [405, 'method_not_allowed', 'That operation is not supported.'],
+  [422, 'validation_failed', 'The Stellina request did not pass validation.'],
+  [429, 'rate_limited', 'Too many Stellina requests were made. Please try again later.'],
+  [500, 'upstream_failure', 'The Stellina data service could not complete the request.'],
+  [503, 'upstream_unavailable', 'The Stellina data service is unavailable.'],
+]) {
+  test(`upstream ${status} is replaced with a safe classified response and has matching log severity`, async () => {
     const { entries, logger } = recorder()
+    const privateBody = JSON.stringify({ detail: 'private SQL/provider failure', token: 'secret-token' })
     const response = await proxyStellinaRequest(request(), route, {
-      logger, fetchImpl: async () => new Response('original-body', { status, headers: { 'www-authenticate': 'Bearer', 'retry-after': '60' } }),
+      logger, fetchImpl: async () => new Response(privateBody, { status, headers: { 'www-authenticate': 'Bearer', 'retry-after': '60' } }),
     })
     assert.equal(response.status, status)
-    assert.equal(await response.text(), 'original-body')
+    const payload = await response.json()
+    assert.deepEqual(payload, errorDetail(code, message, response.headers.get(idHeader)))
+    assert.doesNotMatch(JSON.stringify(payload), /private|SQL|provider|secret-token/)
+    assert.equal(response.headers.get('cache-control'), 'no-store')
+    assert.match(response.headers.get('content-type'), /^application\/json/)
     assert.equal(response.headers.get('www-authenticate'), 'Bearer')
     assert.equal(response.headers.get('retry-after'), '60')
     assert.equal(entries[0].level, status >= 500 ? 'error' : 'warn')
@@ -358,7 +418,8 @@ test('validated references correlate every event with upstream, response and gat
       }
       assert.equal(response.status, outcome === 'success' ? 200 : outcome === 'failure' ? 502 : 504)
       assert.equal(response.headers.get(idHeader), upstreamId)
-      if (outcome !== 'success') assert.equal((await response.json()).request_id, upstreamId)
+      assert.equal(response.headers.get(correlationHeader), upstreamId)
+      if (outcome !== 'success') assert.equal((await response.json()).detail.correlation_id, upstreamId)
       assert.equal(entries.length, 2)
       for (const entry of entries) {
         assertProxyEnvelope(entry)
@@ -419,8 +480,8 @@ test('DEBUG and gateway errors never disclose exceptions, bodies, tokens, cookie
   } })
   const payload = await response.json()
   assert.equal(response.status, 502)
-  assert.equal(payload.request_id, response.headers.get(idHeader))
-  assert.equal(entries.at(-1).request_id, payload.request_id)
+  assert.equal(payload.detail.correlation_id, response.headers.get(idHeader))
+  assert.equal(entries.at(-1).request_id, payload.detail.correlation_id)
   assert.equal(response.headers.get('cache-control'), 'no-store')
   assert.ok(!JSON.stringify({ entries, payload }).includes(secret))
   assert.ok(!JSON.stringify(entries).includes('destination'))
@@ -469,7 +530,10 @@ test('HEAD has no request or response body; OPTIONS retains upstream semantics',
     } }))
     assert.equal(response.status, 405)
     assert.equal(response.headers.get('allow'), 'GET')
-    assert.equal(await response.text(), '')
+    if (method === 'HEAD') assert.equal(await response.text(), '')
+    else assert.deepEqual(await response.json(), errorDetail(
+      'method_not_allowed', 'That operation is not supported.', response.headers.get(idHeader),
+    ))
   }
 })
 
@@ -524,8 +588,9 @@ test('localhost: correlation, compressed JSON, connection failure, invalid JSON,
       assert.equal(response.headers.get(idHeader), `localhost-${mode}`)
       assert.equal(entries.at(-1).request_id, received.at(-1).request_id)
       assert.equal(entries.at(-1).status, status)
-      if (mode !== 'invalid') assert.equal((await response.json()).request_id, `localhost-${mode}`)
-      else assert.equal(await response.text(), '<html>private-value</html>')
+      if (mode === 'success') assert.equal((await response.json()).request_id, `localhost-${mode}`)
+      else if (mode === 'invalid') assert.equal(await response.text(), '<html>private-value</html>')
+      else assert.equal((await response.json()).detail.correlation_id, `localhost-${mode}`)
       assert.equal(response.headers.get('content-encoding'), null)
       assert.equal(response.headers.get('content-length'), null)
     }

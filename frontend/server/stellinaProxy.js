@@ -2,13 +2,31 @@ import { randomUUID } from 'node:crypto'
 import { writeSync } from 'node:fs'
 
 const UPSTREAM_ORIGIN = 'https://api.unoventi.ai'
+const CORRELATION_ID_HEADER = 'x-correlation-id'
 const REQUEST_ID_HEADER = 'x-stellina-request-id'
 const TIMEOUT_MS = 15_000
+const ERROR_BY_STATUS = new Map([
+  [400, ['request_rejected', 'The Stellina request was not accepted.']],
+  [401, ['authentication_required', 'Authentication is required.']],
+  [403, ['authorization_denied', 'This account is not permitted to perform that action.']],
+  [404, ['resource_not_found', 'The requested Stellina resource was not found.']],
+  [405, ['method_not_allowed', 'That operation is not supported.']],
+  [409, ['request_conflict', 'The Stellina request conflicts with the current state.']],
+  [413, ['payload_too_large', 'The Stellina request is too large.']],
+  [422, ['validation_failed', 'The Stellina request did not pass validation.']],
+  [429, ['rate_limited', 'Too many Stellina requests were made. Please try again later.']],
+  [500, ['upstream_failure', 'The Stellina data service could not complete the request.']],
+  [502, ['upstream_unavailable', 'Stellina could not reach the data service.']],
+  [503, ['upstream_unavailable', 'The Stellina data service is unavailable.']],
+  [504, ['upstream_timeout', 'The Stellina data service took too long to respond.']],
+])
 const LEVELS = { DEBUG: 10, INFO: 20, WARN: 30, ERROR: 40 }
 const LOG_FAILURE_FIELDS = '"level":"error","service":"stellina-web","component":"api-proxy","event":"stellina.proxy.logging_failed","message":"Stellina proxy diagnostic logging failed."'
 export function classifyEnvironment(values = process.env) {
-  const selected = values.ENVIRONMENT_NAME ?? values.RAILWAY_ENVIRONMENT_NAME ?? values.VERCEL_ENV ?? values.NODE_ENV
-  if (selected === undefined && (values.VERCEL || values.RAILWAY_SERVICE_ID || values.RAILWAY_DEPLOYMENT_ID)) {
+  const selected = [values.ENVIRONMENT_NAME, values.RAILWAY_ENVIRONMENT_NAME, values.VERCEL_ENV, values.NODE_ENV]
+    .find(value => value?.trim())
+  if (selected === undefined && [values.VERCEL, values.RAILWAY_SERVICE_ID, values.RAILWAY_DEPLOYMENT_ID]
+    .some(value => value?.trim())) {
     throw new Error('Hosted environment must be identified')
   }
   const aliases = {
@@ -62,13 +80,27 @@ function emit(logger, threshold, level, fields) {
   }
 }
 
+function safeError(status, correlationId) {
+  const [code, message] = ERROR_BY_STATUS.get(status)
+    || (status >= 500
+      ? ['upstream_failure', 'The Stellina data service could not complete the request.']
+      : ['request_rejected', 'The Stellina request was not accepted.'])
+  return { detail: { code, message, correlation_id: correlationId } }
+}
+
+function validCorrelationId(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value) ? value : null
+}
+
 // Server-only helper; routePath comes from a reviewed entry point, never browser input.
 // It intentionally buffers small JSON responses so timeouts/body failures are correlated.
 export async function proxyStellinaRequest(request, routePath, options = {}) {
   const now = options.now || (() => performance.now())
   const startedAt = now()
-  const suppliedId = request.headers.get(REQUEST_ID_HEADER) || ''
-  const requestId = /^[A-Za-z0-9._:-]{1,128}$/.test(suppliedId) ? suppliedId : randomUUID()
+  // The platform header is authoritative. The Stellina alias remains only as a
+  // bounded compatibility input/output for older clients.
+  const requestId = validCorrelationId(request.headers.get(CORRELATION_ID_HEADER))
+    || validCorrelationId(request.headers.get(REQUEST_ID_HEADER)) || randomUUID()
   const threshold = options.logLevel === undefined ? minimumLevel : resolveProxyLogLevel(options.logLevel, 'test')
   const logger = options.logger || console
   const context = {
@@ -96,6 +128,7 @@ export async function proxyStellinaRequest(request, routePath, options = {}) {
       const value = request.headers.get(name)
       if (value && !blocked.includes(name)) headers.set(name, value)
     }
+    headers.set(CORRELATION_ID_HEADER, requestId)
     headers.set(REQUEST_ID_HEADER, requestId)
     const init = { method: request.method, headers, redirect: 'manual', signal: controller.signal }
     if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -109,12 +142,20 @@ export async function proxyStellinaRequest(request, routePath, options = {}) {
     for (const name of [...strippedHeaders(upstream.headers), 'content-length', 'content-encoding']) {
       if (name) responseHeaders.delete(name)
     }
+    responseHeaders.set(CORRELATION_ID_HEADER, requestId)
     responseHeaders.set(REQUEST_ID_HEADER, requestId)
     const duration = Math.max(0, Math.round(now() - startedAt))
     log(upstream.status >= 500 ? 'error' : upstream.status >= 400 || duration >= 5000 ? 'warn' : 'info', {
       event: 'stellina.proxy.completed', status: upstream.status, duration_ms: duration,
       message: 'Stellina proxy request completed.',
     })
+    if (upstream.status >= 400 && !noBody) {
+      responseHeaders.set('cache-control', 'no-store')
+      responseHeaders.set('content-type', 'application/json; charset=utf-8')
+      return Response.json(safeError(upstream.status, requestId), {
+        status: upstream.status, statusText: upstream.statusText, headers: responseHeaders,
+      })
+    }
     return new Response(body, { status: upstream.status, statusText: upstream.statusText, headers: responseHeaders })
   } catch {
     const status = timedOut ? 504 : 502
@@ -124,10 +165,11 @@ export async function proxyStellinaRequest(request, routePath, options = {}) {
       status, duration_ms: Math.max(0, Math.round(now() - startedAt)),
       error_type: timedOut ? 'UpstreamTimeout' : request.signal.aborted ? 'RequestCancelled' : 'UpstreamConnectionError',
     })
-    return Response.json({
-      detail: timedOut ? 'The Stellina data service took too long to respond.' : 'Stellina could not reach the data service.',
-      request_id: requestId,
-    }, { status, headers: { 'cache-control': 'no-store', [REQUEST_ID_HEADER]: requestId } })
+    return Response.json(safeError(status, requestId), {
+      status, headers: {
+        'cache-control': 'no-store', [CORRELATION_ID_HEADER]: requestId, [REQUEST_ID_HEADER]: requestId,
+      },
+    })
   } finally {
     clearTimeout(timer)
     request.signal.removeEventListener('abort', cancel)
