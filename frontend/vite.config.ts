@@ -43,7 +43,9 @@ export default defineConfig(({ mode, command }) => {
   if (!decoded.ok) throw new Error(`Application configuration unavailable (${decoded.code})`)
   const publicConfig = { ...decoded.value, buildVersion: buildVersion() }
   const target = process.env.STELLINA_API_PROXY_TARGET || env.STELLINA_API_PROXY_TARGET || 'http://127.0.0.1:3301'
-  const proxy = { '^/api/v1/(stellina|core)(/|$)': { target, changeOrigin: true } }
+  // Core's browser-session adapter compares Origin with the request host as a
+  // CSRF boundary. Preserve the browser-facing host through the local proxy.
+  const proxy = { '^/api/v1/(stellina|core)(/|$)': { target, changeOrigin: false } }
   return {
     mode: environment,
     envDir: false,
