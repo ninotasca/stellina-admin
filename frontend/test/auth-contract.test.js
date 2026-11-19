@@ -8,7 +8,7 @@ import { decodeAuthPolicy as parseAuthPolicy } from '@ninotasca/web-platform/aut
 import { validPolicy } from './auth-fixtures.js'
 
 const contract = JSON.parse(readFileSync(new URL('./contracts/auth-policy.json', import.meta.url), 'utf8'))
-const api = process.env.UNOVENTI_API_ROOT ?? fileURLToPath(new URL('../../../unoventi-api-m2-reference-3a108b1/', import.meta.url))
+const api = process.env.UNOVENTI_API_ROOT ?? fileURLToPath(new URL('../../../unoventi-api/', import.meta.url))
 
 test('shared M2 auth contract digest matches the pinned Core/API sources', () => {
   for (const [path, digest] of Object.entries(contract.sources)) {
