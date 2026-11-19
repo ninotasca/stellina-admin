@@ -16,7 +16,7 @@ test('Stellina login exposes unavailable semantics and retry in a real browser',
   assert.ok(chrome, 'Installed Chrome/Chromium required')
   const config = { environment: 'development', clientLogLevel: 'debug', apiBaseUrl: '/api/v1', buildVersion: 'test', registryRevision: 'test', siteId: 'fixture', manifest: { schemaVersion: 1, applicationId: 'stellina-admin', api: { owner: 'unoventi-api', productNamespace: 'stellina', coreCapabilities: ['auth'] }, auth: { siteKey: 'stellina' }, branding: { displayName: 'Stellina Admin', logoPath: '/brand/stellina-logo-black.png', postLoginPath: '/dashboard' } }, supabaseUrl: 'https://fixture.invalid', supabasePublishableKey: 'sb_publishable_fixture_0000000000', switches: { showBuildInfo: false, enableMagicLoginUi: false, includeTestBookings: false } }
   const output = await build({ root: frontend, configFile: false, logLevel: 'silent', define: { 'process.env.NODE_ENV': '"production"', __STELLINA_PUBLIC_CONFIG__: JSON.stringify(config) }, esbuild: { jsx: 'automatic' }, plugins: [{ name: 'login-state-fixture', enforce: 'pre', load(id) {
-    if (id.endsWith('/platform/auth/supabase.ts')) return `export const supabase={auth:{signInWithOAuth:async()=>({error:null})}};`
+    if (id.endsWith('/platform/auth/supabase.ts')) return `export const supabase={auth:{signOut:async()=>({error:null}),signInWithOAuth:async()=>({error:null})}};`
     if (id.endsWith('/platform/auth/api.ts')) return `export const reportAuthEvent=async()=>{};`
   } }], build: { write: false, minify: false, lib: { entry: join(frontend, 'test/login-state.browser.tsx'), formats: ['iife'], name: 'LoginState' } } })
   const bundle = (Array.isArray(output) ? output : [output]).flatMap(item => item.output).find(item => item.type === 'chunk')
@@ -28,5 +28,13 @@ test('Stellina login exposes unavailable semantics and retry in a real browser',
     const result = stdout.match(/<pre id="result">([^<]*)<\/pre>/)?.[1]
     assert.equal(result, 'PASS: unavailable announcement; controls hidden; retry', result ?? stderr.slice(-2000))
   } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
+test('IAM-IDN-003: Google sign-in clears a prior local provider session before OAuth', async () => {
+  const source = await import('node:fs/promises').then(({ readFile }) => readFile(join(frontend, 'src/features/authentication/Login.tsx'), 'utf8'))
+  const clearIndex = source.indexOf("signOut({ scope: 'local' })")
+  const oauthIndex = source.indexOf('signInWithOAuth({')
+  assert.ok(clearIndex >= 0, 'Google sign-in must clear the local provider session')
+  assert.ok(oauthIndex > clearIndex, 'Local provider-session clearing must precede OAuth')
 })
 

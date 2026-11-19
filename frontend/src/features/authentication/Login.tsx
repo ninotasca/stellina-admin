@@ -24,6 +24,13 @@ const Login: React.FC = () => {
     }
     setLoading(true);
     setError(null);
+    const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
+    if (signOutError) {
+      void reportAuthEvent({ event_type: 'auth_error', error_code: 'provider_session_clear_failed' });
+      setError('We could not prepare Google sign-in. Please try again.');
+      setLoading(false);
+      return;
+    }
     await reportAuthEvent({ event_type: 'oauth_started' });
     const { error: authError } = await supabase.auth.signInWithOAuth({
       provider: 'google',
