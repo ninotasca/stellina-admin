@@ -11,6 +11,10 @@ import { createApiClient, getApiErrorMessage } from '../src/platform/http/index.
 const config = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'))
 const selected = ['/api/v1/stellina/health', '/api/v1/stellina/commissions/projections']
 
+test('Vercel deploys only the production branch', () => {
+  assert.deepEqual(config.git?.deploymentEnabled, { main: true, '*': false })
+})
+
 test('only two exact Function entries precede Stellina/core forwarding and existing SPA fallback', () => {
   assert.deepEqual(config.rewrites.slice(0, 2), selected.map(path => ({ source: path, destination: path })))
   assert.deepEqual(Object.keys(config.functions).sort(), selected.map(path => `${path.slice(1)}.js`).sort())

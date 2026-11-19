@@ -54,13 +54,15 @@ They exercise selector conflicts, aliases, blank and unknown values, and real
 in-memory production-selected builds under development mode. Browser probes
 verify production logging and disabled test bookings without publishing output.
 
-Roll out through one preview deployment first. Confirm the intended API target,
-test-booking visibility, authentication, and production diagnostic filtering
-before promoting the same revision. Retain the last healthy deployment and its
-selector settings. If the preview fails, stop promotion; if a released build
-regresses, restore that deployment and settings, or revert the NIN-242 application
-change and rebuild using explicit production mode. Repeat the health checks.
-No hosted rollout or health verification is performed by these local tests.
+Vercel Git deployments are intentionally enabled only for `main`; non-main
+branch commits must not create Preview deployments. Before merging to `main`,
+confirm the intended API target, test-booking visibility, authentication, and
+production diagnostic filtering using the validated local release candidate.
+Retain the last healthy production deployment and its selector settings. If a
+released build regresses, restore that deployment and settings, or revert the
+application change and rebuild using explicit production mode. Repeat the
+health checks. No hosted rollout or health verification is performed by these
+local tests.
 
 ### Existing lint debt
 

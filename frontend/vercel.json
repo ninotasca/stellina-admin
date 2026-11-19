@@ -1,5 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "main": true,
+      "*": false
+    }
+  },
   "functions": {
     "api/v1/stellina/health.js": { "maxDuration": 30 },
     "api/v1/stellina/commissions/projections.js": { "maxDuration": 30 }
