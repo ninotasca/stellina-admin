@@ -15,6 +15,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const generation = ++mountGeneration.current
     void lifecycle.start()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the current value distinguishes a StrictMode remount from a real unmount.
     return () => { queueMicrotask(() => { if (mountGeneration.current === generation) lifecycle.destroy() }) }
   }, [lifecycle])
   useEffect(() => {
