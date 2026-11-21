@@ -36,6 +36,9 @@ variable because Vite exposes it to the browser.
 The server-side API proxy uses a safe `INFO` logging default in production;
 development traffic is proxied directly by Vite. The optional server override
 is `LOG_LEVEL` (`DEBUG`, `INFO`, `WARN`, or `ERROR`); `STELLINA_LOG_LEVEL` is ignored.
+The proxy validates this value when the server process starts and refuses to
+start when it is invalid. Change `LOG_LEVEL` in the hosting environment and
+redeploy or restart the server before expecting the new threshold to apply.
 
 ## Authentication
 

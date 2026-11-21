@@ -95,6 +95,31 @@ test('only reviewed 4xx details are displayed; arbitrary backend messages and pa
   assert.equal((await failure()).message, 'Event not found')
 })
 
+test('ambiguous attachment failures reconcile once before allowing another upload', async () => {
+  authenticate()
+  for (const [status, code, message] of [
+    [502, 'attachment_save_ambiguous', 'Attachment save could not be confirmed. Refresh the attachment list before trying again.'],
+    [504, 'attachment_save_timeout', 'Attachment save timed out. Refresh the attachment list before trying again.'],
+  ]) {
+    reply = {
+      status,
+      data: JSON.stringify({ detail: { code, message, correlation_id: 'attachment-reference' } }),
+    }
+    let error
+    try {
+      await rfpApi.uploadAttachment('rfp-1', new File(['pdf'], 'offer.pdf'))
+    } catch (caught) {
+      error = caught
+    }
+    assert.equal(error.attachmentErrorCode, code)
+    assert.equal(error.requestId, 'attachment-reference')
+    assert.match(error.message, /Refresh the attachment list before trying again/)
+    assert.equal(calls.filter(call => call.url === '/rfps/rfp-1/attachments').length, 2)
+    assert.doesNotMatch(error.message, /Raw adapter failure/)
+    calls = []
+  }
+})
+
 test('422 retains useful field/type validation without reflected input, context or custom messages', async () => {
   reply = { status: 422, data: JSON.stringify({ detail: [
     { loc: ['query', 'weight_definite'], type: 'less_than_equal', msg: 'private-secret', input: 'private-secret', ctx: { secret: 'private-secret' } },
@@ -254,8 +279,12 @@ test('multipart uploads preserve FormData, paths and no retry', async () => {
   await cventTrackerApi.upload('booking', file)
   await rfpApi.uploadAttachment('rfp', file)
   await publicHotelApi.uploadAttachment('public-guid', file)
-  assert.equal(calls.length, 3)
-  for (const call of calls) {
+  assert.equal(calls.length, 4)
+  const uploads = calls.filter(call => call.method === 'post')
+  assert.equal(uploads.length, 3)
+  assert.equal(calls.filter(call => call.url === '/rfps/rfp/attachments' && call.method === 'post').length, 1)
+  assert.equal(calls.filter(call => call.url === '/rfps/rfp/attachments' && call.method === 'get').length, 1)
+  for (const call of uploads) {
     assert.ok(call.data instanceof FormData)
     assert.equal(call.data.get('file').name, 'example.txt')
     assert.match(call.headers['Content-Type'], /multipart\/form-data/)
@@ -318,4 +347,26 @@ test('canonical history correlation header is bounded and preferred over body re
     reply = { status: 503, headers: { 'x-correlation-id': reference }, data: JSON.stringify({correlation_id: 'body-history-ref'}) }
     await assert.rejects(administrationApi.getLoginAttempts(), error => error.requestId === expected)
   }
+})
+
+const cacheContractPath = process.env.UNOVENTI_PRIVATE_RESPONSE_CACHE_CONTRACT
+const cacheContract = cacheContractPath ? JSON.parse(readFileSync(cacheContractPath)) : null
+test('private-response-cache-v1: real history and browser-session consumers accept no-store', { skip: !cacheContract }, async () => {
+  assert.equal(cacheContract.contract, 'private-response-cache-v1')
+  authenticate()
+  const history = cacheContract.cases.history
+  reply = { status: history.status, data: JSON.stringify(history.body), headers: { 'cache-control': history.cache_control } }
+  assert.deepEqual(await administrationApi.getLoginAttempts(), history.body)
+  assert.equal(calls.at(-1).url, '/auth/login-attempts')
+  for (const status of [401, 403, 422, 503]) {
+    const sample = cacheContract.cases[status]
+    reply = { status, data: JSON.stringify(sample.body), headers: { 'cache-control': sample.cache_control } }
+    const before = calls.length
+    await assert.rejects(administrationApi.getLoginAttempts(), error => error.response.status === status)
+    assert.equal(calls.length, before + 1, 'no retries or fallback')
+  }
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => Response.json(cacheContract.cases.exchange_stellina.body, { status: cacheContract.cases.exchange_stellina.status, headers: { 'cache-control': cacheContract.cases.exchange_stellina.cache_control } })
+  try { assert.deepEqual(await authBackend.exchange('synthetic-proof'), cacheContract.cases.exchange_stellina.body) }
+  finally { globalThis.fetch = originalFetch }
 })

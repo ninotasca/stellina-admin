@@ -38,6 +38,26 @@ const SAFE_FIELDS = new Set([
 
 type SafeValidation = { loc: (string | number)[]; type: string; msg: string };
 type ErrorBody = { detail?: unknown; request_id?: unknown; correlation_id?: unknown };
+type AttachmentFailure = {
+  code: 'attachment_save_unavailable' | 'attachment_save_ambiguous' | 'attachment_save_timeout';
+  message: string;
+  correlation_id?: unknown;
+};
+
+const ATTACHMENT_FAILURE_MESSAGES: Record<AttachmentFailure['code'], string> = {
+  attachment_save_unavailable: 'Attachment service is unavailable. Try again later.',
+  attachment_save_ambiguous: 'Attachment save could not be confirmed. Refresh the attachment list before trying again.',
+  attachment_save_timeout: 'Attachment save timed out. Refresh the attachment list before trying again.',
+};
+
+function attachmentFailure(detail: unknown): AttachmentFailure | null {
+  if (!detail || typeof detail !== 'object') return null;
+  const candidate = detail as Partial<AttachmentFailure>;
+  if (typeof candidate.code !== 'string' || !Object.hasOwn(ATTACHMENT_FAILURE_MESSAGES, candidate.code)) return null;
+  const code = candidate.code as AttachmentFailure['code'];
+  if (candidate.message !== ATTACHMENT_FAILURE_MESSAGES[code]) return null;
+  return { code, message: candidate.message, correlation_id: candidate.correlation_id };
+}
 
 function validId(value: unknown): string | null {
   return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value) ? value : null;
@@ -66,14 +86,17 @@ export function normalizeApiError(error: unknown): never {
   if (axios.isCancel(error) || !axios.isAxiosError(error)) throw error;
   const response = error.response;
   const body = jsonBody(response?.data);
+  const attachment = attachmentFailure(body?.detail);
   const requestId = validId(response?.headers['x-correlation-id']) || validId(response?.headers[REQUEST_ID_HEADER])
-    || validId(body?.correlation_id) || validId(body?.request_id);
+    || validId(attachment?.correlation_id) || validId(body?.correlation_id) || validId(body?.request_id);
   const status = response?.status;
   let detail = 'Stellina could not reach the data service. Please try again.';
   const validation = status === 422 ? validationDetails(body?.detail) : [];
   if (response) {
     if (error.code === 'ERR_BAD_RESPONSE' && status && status < 400) {
       detail = 'Stellina received an unreadable response from the data service.';
+    } else if (attachment && [502, 503, 504].includes(status || 0)) {
+      detail = attachment.message;
     } else if (status === 504) {
       detail = 'The Stellina data service took too long to respond.';
     } else if (status && status >= 500) {
@@ -105,7 +128,11 @@ export function normalizeApiError(error: unknown): never {
   // Existing screens consume response.data.detail; keep it a safe renderable string.
   // Keep Axios identity, status, headers, config and the no-response network distinction.
   if (response) response.data = { detail: message, ...(requestId ? { request_id: requestId } : {}), ...(validation.length ? { validation_errors: validation } : {}) };
-  Object.assign(error, { requestId, correlationId: requestId, status: status ?? 0, errorClass: status === 401 ? 'AuthenticationRequired' : status === 403 ? 'AuthorizationDenied' : status && status >= 500 ? 'ServiceUnavailable' : response ? 'RequestRejected' : 'UpstreamConnectionError', validationErrors: validation });
+  Object.assign(error, {
+    requestId, correlationId: requestId, status: status ?? 0,
+    errorClass: attachment ? 'AttachmentSaveFailure' : status === 401 ? 'AuthenticationRequired' : status === 403 ? 'AuthorizationDenied' : status && status >= 500 ? 'ServiceUnavailable' : response ? 'RequestRejected' : 'UpstreamConnectionError',
+    attachmentErrorCode: attachment?.code, validationErrors: validation,
+  });
   throw error;
 }
 

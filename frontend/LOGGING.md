@@ -53,7 +53,7 @@ Connection-nominated headers) and stale content length/encoding are removed.
 Cookies are not rewritten; a future cookie-based authentication rollout needs
 its own domain/SameSite/CSRF review.
 
-- Contract: `/api/v1/stellina`, `STELLINA_LOG_LEVEL`, `x-stellina-request-id`,
+- Contract: `/api/v1/stellina`, `LOG_LEVEL`, `x-stellina-request-id`,
   service `stellina-web`, events `stellina.proxy.*`, JSON field `request_id`.
 - IDs accept 1–128 ASCII letters/digits plus `.`, `_`, `:`, `-`. Missing/invalid
   IDs become fresh UUIDs. The same ID is sent upstream and returned downstream.
@@ -72,9 +72,12 @@ its own domain/SameSite/CSRF review.
   timeouts return safe 504 JSON with matching header/body IDs and `no-store`.
   Requests are never retried.
 
-Set `STELLINA_LOG_LEVEL=INFO` in the Stellina Vercel project's server environment
-and redeploy after changing it. Do not prefix it with `VITE_`. Backend logging is
-assumed deployed independently; this change does not modify the backend,
+Set `LOG_LEVEL=INFO` in the Stellina Vercel project's server environment and
+redeploy after changing it. Do not prefix it with `VITE_`. The Function validates
+the value during startup and rejects values other than `DEBUG`, `INFO`, `WARN`,
+or `ERROR` before accepting traffic. A warm Function keeps the threshold selected
+at startup, so an environment change requires a new deployment. Backend logging
+is assumed deployed independently; this change does not modify the backend,
 Supabase configuration, business/audit records, log files or disk rotation.
 
 ## Browser behavior

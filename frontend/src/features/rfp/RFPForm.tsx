@@ -389,10 +389,14 @@ const RFPForm: React.FC = () => {
                   if (!f || !rfpIdParam) return;
                   setUploadingAttachment(true);
                   try {
-                    await rfpApi.uploadAttachment(rfpIdParam, f);
-                    const att = await rfpApi.listAttachments(rfpIdParam);
+                    const att = await rfpApi.uploadAttachment(rfpIdParam, f);
                     setAttachments(att.map((a) => ({ id: a.id, filename: a.filename, size_bytes: a.size_bytes })));
                   } catch (err: any) {
+                    if (Array.isArray(err?.reconciledAttachments)) {
+                      setAttachments(err.reconciledAttachments.map((a: AttachmentRow) => ({
+                        id: a.id, filename: a.filename, size_bytes: a.size_bytes,
+                      })));
+                    }
                     alert(`Upload failed: ${getApiErrorMessage(err, '')}`);
                   } finally {
                     setUploadingAttachment(false);

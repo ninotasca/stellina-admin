@@ -146,12 +146,29 @@ export const rfpApi = {
     return res.data;
   },
 
-  uploadAttachment: async (rfpId: string, file: File): Promise<void> => {
+  uploadAttachment: async (rfpId: string, file: File): Promise<Array<{
+    id: string; rfp_id: string; filename: string; size_bytes: number;
+    content_type?: string | null; uploaded_at: string;
+  }>> => {
     const form = new FormData();
     form.append('file', file);
-    await apiClient.post(`/rfps/${rfpId}/attachments`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    try {
+      await apiClient.post(`/rfps/${rfpId}/attachments`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return await rfpApi.listAttachments(rfpId);
+    } catch (error) {
+      const code = (error as { attachmentErrorCode?: string }).attachmentErrorCode;
+      if (code === 'attachment_save_ambiguous' || code === 'attachment_save_timeout') {
+        try {
+          const reconciledAttachments = await rfpApi.listAttachments(rfpId);
+          Object.assign(error as object, { reconciledAttachments });
+        } catch {
+          // Preserve the original bounded save failure and its correlation ID.
+        }
+      }
+      throw error;
+    }
   },
 
   deleteAttachment: async (attachmentId: string): Promise<void> => {
