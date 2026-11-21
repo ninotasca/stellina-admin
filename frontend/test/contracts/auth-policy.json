@@ -155,7 +155,7 @@
     }
   },
   "sources": {
-    "app/modules/core/routes/auth_routes.py": "36bc9957b257fb210de8528ec450eda5c6ae8e0e1ced30793ad184534664ff7e",
+    "app/modules/core/routes/auth_routes.py": "5a45114cf51617d943f2d654e8baedcac19c8e8c2dc8bd2e312f47a67b88cfb8",
     "app/modules/core/schemas/supabase_auth.py": "5342b0caacd5451f5ae2ae73a32a1d2a784fcc96852caf7beac3dceae2f37442"
   }
 }
